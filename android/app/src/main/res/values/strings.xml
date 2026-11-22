@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Sheeta Operations Research</string>
+    <string name="title_activity_main">Sheeta Operations Research</string>
+    <string name="package_name">org.sheeta.operationsresearch</string>
+    <string name="custom_url_scheme">org.sheeta.operationsresearch</string>
+</resources>

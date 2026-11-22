@@ -1,0 +1,85 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  [dir="rtl"] {
+    font-family: 'Cairo', 'Segoe UI', 'Noto Sans Arabic', 'Geeza Pro', Tahoma, sans-serif;
+  }
+
+  code, kbd, samp, pre, .font-mono, .tabular-nums {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Prevent mobile web rubber-band bounce and handle safe-areas */
+  html, body {
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Mobile notch and home-indicator safe areas */
+.safe-area-top {
+  padding-top: max(12px, env(safe-area-inset-top, 12px));
+}
+.safe-area-bottom {
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+}
+.safe-area-inset-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7);
+}
+
+/* Print styling for PDF report generation */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt;
+  }
+
+  /* Hide navigation, buttons, controls during print */
+  nav, header, footer, .no-print, button, input, select, textarea {
+    display: none !important;
+  }
+
+  /* Show print container full width */
+  .print-only-container {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Prevent page breaks inside cards, tables, charts */
+  .page-break-inside-avoid,
+  table, tr, .print-card {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .print-break-before {
+    page-break-before: always !important;
+    break-before: always !important;
+  }
+}

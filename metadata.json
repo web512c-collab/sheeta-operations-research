@@ -1,0 +1,6 @@
+{
+  "name": "Sheeta Operations Research",
+  "description": "Production-grade bilingual Operations Research solver and simulation suite featuring Two-Phase Simplex, Branch and Bound, Presolve, Transportation, PERT/CPM, Queuing, EOQ, and Monte Carlo scenario explorer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
