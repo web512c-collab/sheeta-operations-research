@@ -5,20 +5,22 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+# Permissions required for GitHub Pages deployment
 permissions:
   contents: read
   pages: write
   id-token: write
 
 # Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# Do NOT cancel in-progress runs as we want to allow these production deployments to complete cleanly.
 concurrency:
   group: 'pages'
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  # Build job
+  # =========================================================================
+  # Build job: Build Vite + PWA bundle with sub-path base
+  # =========================================================================
   build:
     name: Build PWA for GitHub Pages
     runs-on: ubuntu-latest
@@ -30,6 +32,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Setup Pages Configuration
+        uses: actions/configure-pages@v5
 
       - name: Install Dependencies
         run: |
@@ -44,15 +49,14 @@ jobs:
           VITE_BASE: /sheeta-operations-research/
         run: npm run build:pwa
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Artifact
+      - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: 'dist'
 
-  # Deployment job
+  # =========================================================================
+  # Deployment job: Publish artifact to GitHub Pages
+  # =========================================================================
   deploy:
     name: Deploy to GitHub Pages
     environment:
