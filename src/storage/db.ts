@@ -153,7 +153,7 @@ export async function loadSettings(): Promise<AppSettings> {
 export async function saveSettings(settings: AppSettings): Promise<void> {
   try {
     const db = await openDb();
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const tx = db.transaction(STORE_SETTINGS, 'readwrite');
       const store = tx.objectStore(STORE_SETTINGS);
       const req = store.put({ key: 'app_settings', settings });

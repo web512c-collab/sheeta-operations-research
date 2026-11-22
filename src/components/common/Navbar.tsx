@@ -13,7 +13,6 @@ import {
   Globe,
   Moon,
   Network,
-  RotateCcw,
   Settings,
   Sparkles,
   Sun,
@@ -41,7 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   theme,
   onToggleTheme,
 }) => {
-  const { t, language, toggleLanguage, isRtl } = useI18n();
+  const { t, language, toggleLanguage } = useI18n();
 
   const navItems: { id: ORModuleType; label: string; icon: React.ReactNode }[] = [
     { id: 'lp', label: t.modules.lpShort, icon: <BarChart3 className="w-4 h-4" /> },

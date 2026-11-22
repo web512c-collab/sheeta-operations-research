@@ -1,7 +1,8 @@
 /**
  * Sheeta Operations Research
- * Standalone Zero-Dependency PNG Icon Generator
- * Generates spec-compliant PNG icons for PWA, iOS, Android, and Desktop platforms
+ * Standalone Zero-Dependency Icon Generator
+ * Generates spec-compliant PNG, binary Windows ICO, and binary Apple ICNS icons
+ * for PWA, iOS, Android, and Tauri/Electron Desktop builds.
  */
 
 import fs from 'fs';
@@ -49,10 +50,10 @@ function makeChunk(type, data) {
 export function generatePngIcon(size, isMaskable = false) {
   const width = size;
   const height = size;
-  
+
   // 1 scanline = 1 filter byte (0) + width * 4 bytes RGBA
   const rawScanlines = Buffer.alloc((1 + width * 4) * height);
-  
+
   const bgR = 0x43, bgG = 0x38, bgB = 0xca;
   const endR = 0x63, endG = 0x66, endB = 0xf1;
   const white = 0xff;
@@ -92,7 +93,6 @@ export function generatePngIcon(size, isMaskable = false) {
       const b = Math.round(bgB + t * (endB - bgB));
 
       // Draw stylized Sigma glyph in center
-      // Sigma coordinates normalized to [padding, size - padding]
       const nx = (x - padding) / (width - 2 * padding);
       const ny = (y - padding) / (height - 2 * padding);
 
@@ -102,10 +102,10 @@ export function generatePngIcon(size, isMaskable = false) {
         if (ny <= 0.28 && nx >= 0.18 && nx <= 0.82) isGlyph = true;
         // Bottom bar
         if (ny >= 0.72 && nx >= 0.18 && nx <= 0.82) isGlyph = true;
-        // Upper diagonal towards center (from (0.82, 0.28) to (0.42, 0.5))
+        // Upper diagonal towards center
         const distUpper = Math.abs((0.5 - 0.28) * nx + (0.82 - 0.42) * ny + (0.42 * 0.28 - 0.82 * 0.5));
         if (nx >= 0.38 && nx <= 0.82 && ny >= 0.25 && ny <= 0.52 && distUpper < 0.055) isGlyph = true;
-        // Lower diagonal from center to bottom (from (0.42, 0.5) to (0.82, 0.72))
+        // Lower diagonal from center to bottom
         const distLower = Math.abs((0.72 - 0.5) * nx - (0.82 - 0.42) * ny + (0.42 * 0.72 - 0.82 * 0.5));
         if (nx >= 0.38 && nx <= 0.82 && ny >= 0.48 && ny <= 0.75 && distLower < 0.055) isGlyph = true;
       }
@@ -124,13 +124,9 @@ export function generatePngIcon(size, isMaskable = false) {
     }
   }
 
-  // Deflate scanlines
   const compressed = zlib.deflateSync(rawScanlines, { level: 9 });
-
-  // PNG Header
   const header = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 
-  // IHDR chunk
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
@@ -147,21 +143,103 @@ export function generatePngIcon(size, isMaskable = false) {
   return Buffer.concat([header, ihdrChunk, idatChunk, iendChunk]);
 }
 
-// Write to public/
+/**
+ * Generates a valid binary Windows ICO container embedding PNG payloads.
+ */
+export function generateIcoIcon(sizes = [16, 32, 48, 64, 256]) {
+  const images = sizes.map((size) => ({
+    size,
+    data: generatePngIcon(size, false),
+  }));
+
+  const headerSize = 6;
+  const entrySize = 16;
+  let offset = headerSize + entrySize * images.length;
+
+  const header = Buffer.alloc(headerSize);
+  header.writeUInt16LE(0, 0); // Reserved
+  header.writeUInt16LE(1, 2); // Type: 1 = ICO
+  header.writeUInt16LE(images.length, 4);
+
+  const entries = [];
+  const payloads = [];
+
+  for (const img of images) {
+    const entry = Buffer.alloc(entrySize);
+    const dim = img.size >= 256 ? 0 : img.size;
+    entry.writeUInt8(dim, 0);
+    entry.writeUInt8(dim, 1);
+    entry.writeUInt8(0, 2); // Color count (0 for RGBA)
+    entry.writeUInt8(0, 3); // Reserved
+    entry.writeUInt16LE(1, 4); // Color planes
+    entry.writeUInt16LE(32, 6); // Bits per pixel
+    entry.writeUInt32LE(img.data.length, 8);
+    entry.writeUInt32LE(offset, 12);
+
+    entries.push(entry);
+    payloads.push(img.data);
+    offset += img.data.length;
+  }
+
+  return Buffer.concat([header, ...entries, ...payloads]);
+}
+
+/**
+ * Generates a valid binary Apple ICNS container using PNG-compressed icon blocks.
+ */
+export function generateIcnsIcon() {
+  const entries = [
+    { osType: 'icp4', size: 16 },
+    { osType: 'icp5', size: 32 },
+    { osType: 'icp6', size: 64 },
+    { osType: 'ic07', size: 128 },
+    { osType: 'ic08', size: 256 },
+    { osType: 'ic09', size: 512 },
+  ];
+
+  const blocks = entries.map(({ osType, size }) => {
+    const png = generatePngIcon(size, false);
+    const block = Buffer.alloc(8 + png.length);
+    block.write(osType, 0, 4, 'ascii');
+    block.writeUInt32BE(8 + png.length, 4);
+    png.copy(block, 8);
+    return block;
+  });
+
+  const totalLength = 8 + blocks.reduce((sum, buf) => sum + buf.length, 0);
+  const header = Buffer.alloc(8);
+  header.write('icns', 0, 4, 'ascii');
+  header.writeUInt32BE(totalLength, 4);
+
+  return Buffer.concat([header, ...blocks]);
+}
+
+// Write PWA icons to public/
 const publicDir = path.resolve(process.cwd(), 'public');
 if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
 }
 
+const icoBuffer = generateIcoIcon([16, 32, 48, 64, 256]);
+const icnsBuffer = generateIcnsIcon();
+
 fs.writeFileSync(path.join(publicDir, 'pwa-192x192.png'), generatePngIcon(192, false));
 fs.writeFileSync(path.join(publicDir, 'pwa-512x512.png'), generatePngIcon(512, false));
 fs.writeFileSync(path.join(publicDir, 'pwa-maskable-512x512.png'), generatePngIcon(512, true));
 fs.writeFileSync(path.join(publicDir, 'apple-touch-icon.png'), generatePngIcon(180, false));
-fs.writeFileSync(path.join(publicDir, 'favicon.ico'), generatePngIcon(64, false));
+fs.writeFileSync(path.join(publicDir, 'favicon.ico'), icoBuffer);
 
-console.log('Successfully generated PWA and native PNG icons in /public:');
-console.log(' - /public/pwa-192x192.png');
-console.log(' - /public/pwa-512x512.png');
-console.log(' - /public/pwa-maskable-512x512.png');
-console.log(' - /public/apple-touch-icon.png');
-console.log(' - /public/favicon.ico');
+// Write Tauri 2 desktop icons to src-tauri/icons/
+const tauriIconsDir = path.resolve(process.cwd(), 'src-tauri', 'icons');
+if (!fs.existsSync(tauriIconsDir)) {
+  fs.mkdirSync(tauriIconsDir, { recursive: true });
+}
+
+fs.writeFileSync(path.join(tauriIconsDir, '32x32.png'), generatePngIcon(32, false));
+fs.writeFileSync(path.join(tauriIconsDir, '128x128.png'), generatePngIcon(128, false));
+fs.writeFileSync(path.join(tauriIconsDir, '128x128@2x.png'), generatePngIcon(256, false));
+fs.writeFileSync(path.join(tauriIconsDir, 'icon.png'), generatePngIcon(512, false));
+fs.writeFileSync(path.join(tauriIconsDir, 'icon.ico'), icoBuffer);
+fs.writeFileSync(path.join(tauriIconsDir, 'icon.icns'), icnsBuffer);
+
+console.log('Successfully generated PWA, ICO, and Tauri 2 desktop icons.');

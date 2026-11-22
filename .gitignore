@@ -1,8 +1,17 @@
 node_modules/
-build/
 dist/
+dev-dist/
+release/
 coverage/
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+ios/App/Pods/
+src-tauri/target/
+src-tauri/gen/schemas/
 .DS_Store
 *.log
 .env*
 !.env.example
+# Note: package-lock.json is intentionally NOT ignored so users can commit a lockfile if desired.

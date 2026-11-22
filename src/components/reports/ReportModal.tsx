@@ -8,8 +8,6 @@ import { Modal } from '../common/Modal';
 import { useI18n } from '../../i18n/i18nContext';
 import { usePlatform } from '../../platform';
 import {
-  copyToClipboard,
-  downloadTextReport,
   generateMarkdownReport,
   ReportData,
 } from '../../engines/reportBuilder';

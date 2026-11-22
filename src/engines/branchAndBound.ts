@@ -9,7 +9,6 @@ import {
   BranchingStrategy,
   ConstraintDef,
   LpProblem,
-  SimplexSolution,
   VariableDef,
 } from '../types';
 import { EPS, isInteger, snapZero } from './matrix';

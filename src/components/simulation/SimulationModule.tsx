@@ -21,20 +21,15 @@ import { saveProblem } from '../../storage/db';
 import {
   SAMPLE_EOQ,
   SAMPLE_PERT_CPM,
-  SAMPLE_QUEUING,
   SAMPLE_TRANSPORTATION,
   SAMPLE_TWO_VAR_LP,
 } from '../../storage/sampleProblems';
 import {
   ArrowLeftRight,
-  ArrowUpDown,
-  BarChart3,
   BookmarkPlus,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Eye,
-  Filter,
   Play,
   Search,
   Sparkles,
@@ -258,7 +253,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'best' | 'worst' | 'id'>('best');
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const pageSize = 10;
   const [selectedScenario, setSelectedScenario] = useState<ScenarioRun | null>(null);
 
   const handleTargetModuleChange = (newMod: ORModuleType) => {
@@ -697,7 +692,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
                       </td>
                       <td className="px-3 py-2 font-sans font-medium text-slate-800 dark:text-slate-200">
                         {Object.entries(sc.paramValues)
-                          .map(([k, v]) => `${param.label}: ${v}`)
+                          .map(([, v]) => `${param.label}: ${v}`)
                           .join(', ')}
                       </td>
                       <td className="px-3 py-2 text-end font-bold text-slate-900 dark:text-slate-100 tabular-nums">

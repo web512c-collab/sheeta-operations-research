@@ -17,8 +17,6 @@ import {
   saveProblem,
 } from '../../storage/db';
 import {
-  BookOpen,
-  Calendar,
   Check,
   Download,
   FolderOpen,

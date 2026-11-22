@@ -301,12 +301,10 @@ export function solveTwoPhaseSimplex(problem: LpProblem): SimplexSolution {
           };
         }
         // Degenerate: try to pivot it out with any non-artificial variable having non-zero entry
-        let swapped = false;
         for (let j = 0; j < totalCols; j++) {
           if (!artificialColIndices.includes(j) && Math.abs(tableau[i + 1][j]) > PIVOT_EPS) {
             pivot(tableau, i + 1, j, totalCols + 1);
             basis[i] = j;
-            swapped = true;
             break;
           }
         }

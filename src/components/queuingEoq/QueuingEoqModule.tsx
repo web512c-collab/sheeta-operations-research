@@ -17,7 +17,7 @@ import { useI18n } from '../../i18n/i18nContext';
 import { SAMPLE_EOQ, SAMPLE_QUEUING } from '../../storage/sampleProblems';
 import { solveEoq, solveQueuing } from '../../engines/queuingEoq';
 import { StatusBanner } from '../common/StatusBanner';
-import { Layers, Package, Play, TrendingUp, Users } from 'lucide-react';
+import { Package, Play, Users } from 'lucide-react';
 
 interface QueuingEoqModuleProps {
   initialQueuing?: QueuingInputs;

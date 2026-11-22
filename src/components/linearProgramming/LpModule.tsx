@@ -30,14 +30,11 @@ import {
 } from '../../storage/sampleProblems';
 import {
   BarChart2,
-  CheckCircle,
   Eye,
   EyeOff,
   Flame,
   Plus,
   Play,
-  RotateCcw,
-  Sparkles,
   Trash2,
 } from 'lucide-react';
 

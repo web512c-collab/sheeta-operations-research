@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Industrial-grade Operations Research solver and simulation suite"
 authors = ["Sheeta OR Team"]
 license = "Apache-2.0"
-repository = "https://github.com/sheeta/operations-research"
+repository = "https://github.com/web512c-collab/sheeta-operations-research"
 edition = "2021"
 
 [build-dependencies]

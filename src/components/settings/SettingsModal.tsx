@@ -8,7 +8,7 @@ import { Modal } from '../common/Modal';
 import { AppSettings } from '../../types';
 import { useI18n } from '../../i18n/i18nContext';
 import { saveSettings } from '../../storage/db';
-import { Flame, Gauge, Save, Shield, Sliders, Zap } from 'lucide-react';
+import { Flame, Save, Zap } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;

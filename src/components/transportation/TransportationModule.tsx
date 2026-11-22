@@ -29,7 +29,6 @@ interface TransportationModuleProps {
 }
 
 export const TransportationModule: React.FC<TransportationModuleProps> = ({
-  initialProblem,
   onUpdateActiveProblem,
 }) => {
   const { t } = useI18n();
@@ -105,14 +104,6 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
       { id: `d${nextIdx}`, name: `Market ${nextIdx}`, demand: 100 },
     ];
     const newCosts = transportProblem.costs.map((row) => [...row, 10]);
-    const updated = { ...transportProblem, destinations: newDests, costs: newCosts };
-    setTransportProblem(updated);
-  };
-
-  const removeDestination = (idx: number) => {
-    if (transportProblem.destinations.length <= 1) return;
-    const newDests = transportProblem.destinations.filter((_, i) => i !== idx);
-    const newCosts = transportProblem.costs.map((row) => row.filter((_, i) => i !== idx));
     const updated = { ...transportProblem, destinations: newDests, costs: newCosts };
     setTransportProblem(updated);
   };

@@ -10,10 +10,6 @@ import { SAMPLE_PERT_CPM } from '../../storage/sampleProblems';
 import { solvePertCpm } from '../../engines/pertCpm';
 import { StatusBanner } from '../common/StatusBanner';
 import {
-  Calendar,
-  CheckCircle2,
-  Clock,
-  Network,
   Play,
   Plus,
   Target,

@@ -9,8 +9,7 @@
 
 Access the production application directly in your browser with zero setup:
 
-🔗 **[https://USERNAME.github.io/sheeta-operations-research/](https://USERNAME.github.io/sheeta-operations-research/)**  
-*(Replace `USERNAME` with your GitHub username or organization name)*
+🔗 **[https://web512c-collab.github.io/sheeta-operations-research/](https://web512c-collab.github.io/sheeta-operations-research/)**
 
 ### 📲 How to Install as an Offline PWA
 
@@ -35,8 +34,8 @@ Install Sheeta Operations Research to run full-screen, standalone, and completel
 | **Windows** | Tauri 2 (or Electron) | `.exe` / `.msi` (x64, ARM64) | `npm run tauri:build` |
 | **macOS** | Tauri 2 (or Electron) | `.dmg` / `.app` (Universal, M-series, Intel) | `npm run tauri:build` |
 | **Linux** | Tauri 2 (or Electron) | `.AppImage` / `.deb` (x64, ARM64) | `npm run tauri:build` |
-| **Android** | Capacitor 7 | `.apk` / `.aab` | `npm run android:build` |
-| **iOS** | Capacitor 7 + Xcode | `.ipa` / Xcode Project | `npm run ios:build` |
+| **Android** | Capacitor 8 | `.apk` / `.aab` | `npm run android:build` |
+| **iOS** | Capacitor 8 + Xcode | `.ipa` / Xcode Project | `npm run ios:build` |
 
 ---
 
@@ -84,7 +83,7 @@ npm run preview
 ```
 
 ### 2. Android (APK & App Bundle)
-**Prerequisites:** Node.js 20+, JDK 17, Android Studio & Android SDK (API 34+).
+**Prerequisites:** Node.js 20+, JDK 21, Android Studio & Android SDK (API 36).
 ```bash
 # Build web assets and sync to native Android project
 npm run android:build
@@ -97,7 +96,7 @@ cd android && ./gradlew assembleDebug
 ```
 
 ### 3. iOS (.ipa)
-**Prerequisites:** macOS, Xcode 15+, CocoaPods.
+**Prerequisites:** macOS, Xcode 16+ (Swift Package Manager).
 ```bash
 # Build web assets and sync to iOS Xcode workspace
 npm run ios:build

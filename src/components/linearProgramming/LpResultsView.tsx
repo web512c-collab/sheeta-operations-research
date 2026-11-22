@@ -11,7 +11,7 @@ import {
   SimplexSolution,
 } from '../../types';
 import { useI18n } from '../../i18n/i18nContext';
-import { ChevronDown, ChevronUp, FileText, GitBranch, Layers, ShieldCheck } from 'lucide-react';
+import { ChevronDown, ChevronUp, GitBranch, ShieldCheck } from 'lucide-react';
 
 interface LpResultsViewProps {
   problem: LpProblem;
@@ -32,7 +32,6 @@ export const LpResultsView: React.FC<LpResultsViewProps> = ({
   const isIntegerProgram = problem.isIntegerProgram;
   const activeSolution = isIntegerProgram && bbResult ? bbResult.bestIntegerSolution : simplexSolution?.variableValues;
   const activeObjective = isIntegerProgram && bbResult ? bbResult.bestObjectiveValue : simplexSolution?.objectiveValue;
-  const activeStatus = isIntegerProgram && bbResult ? bbResult.status : simplexSolution?.status;
 
   if (!simplexSolution && !bbResult) return null;
 
