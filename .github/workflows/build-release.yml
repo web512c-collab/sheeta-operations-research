@@ -120,7 +120,7 @@ jobs:
       - name: Build Tauri Desktop Bundle
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
         with:
           args: --target ${{ matrix.target }}
 
@@ -224,6 +224,8 @@ jobs:
               -destination 'generic/platform=iOS' \
               -archivePath App.xcarchive \
               archive \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
               CODE_SIGNING_ALLOWED=NO
           else
             xcodebuild -project App.xcodeproj \
@@ -232,6 +234,8 @@ jobs:
               -destination 'generic/platform=iOS' \
               -archivePath App.xcarchive \
               archive \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
               CODE_SIGNING_ALLOWED=NO
           fi
 

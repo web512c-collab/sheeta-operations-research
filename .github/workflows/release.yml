@@ -165,7 +165,7 @@ jobs:
       - name: Build Tauri Desktop Bundle
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPIMAGE_EXTRACT_AND_RUN: '1'
         with:
           args: --target ${{ matrix.target }}
 
@@ -176,6 +176,10 @@ jobs:
           find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f \
             \( -name '*.dmg' -o -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.exe' -o -name '*.msi' \) \
             -exec cp {} staged-desktop/ \;
+          if [ -z "$(ls -A staged-desktop)" ]; then
+            echo "::error::No desktop installer files produced for ${{ matrix.target }}."
+            exit 1
+          fi
           ls -lh staged-desktop/
 
       - name: Upload Desktop Release Artifact
