@@ -3,7 +3,7 @@
  * Queuing Theory & Inventory (EOQ/EPQ) Module
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   EoqInputs,
   EoqModelType,
@@ -22,17 +22,21 @@ import { Package, Play, Users } from 'lucide-react';
 interface QueuingEoqModuleProps {
   initialQueuing?: QueuingInputs;
   initialEoq?: EoqInputs;
-  onUpdateActiveProblem?: (problem: any, results?: any) => void;
+  preferredTab?: 'queuing' | 'eoq';
+  syncVersion?: number;
+  onUpdateActiveProblem?: (problem: any, results?: any, activeSubTab?: 'queuing' | 'eoq') => void;
 }
 
 export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
   initialQueuing,
   initialEoq,
+  preferredTab,
+  syncVersion,
   onUpdateActiveProblem,
 }) => {
   const { t } = useI18n();
 
-  const [activeTab, setActiveTab] = useState<'queuing' | 'eoq'>('queuing');
+  const [activeTab, setActiveTab] = useState<'queuing' | 'eoq'>(preferredTab || 'queuing');
 
   // Queuing State
   const [queuingInputs, setQueuingInputs] = useState<QueuingInputs>(
@@ -46,6 +50,55 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
 
   const [status, setStatus] = useState<RunStatus>('idle');
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const lastSyncRef = useRef<{
+    queuing?: QueuingInputs;
+    eoq?: EoqInputs;
+    version?: number;
+  }>({
+    queuing: initialQueuing,
+    eoq: initialEoq,
+    version: syncVersion,
+  });
+
+  useEffect(() => {
+    if (syncVersion !== undefined) {
+      if (lastSyncRef.current.version === syncVersion) return;
+    } else if (
+      lastSyncRef.current.queuing === initialQueuing &&
+      lastSyncRef.current.eoq === initialEoq
+    ) {
+      return;
+    }
+    lastSyncRef.current = {
+      queuing: initialQueuing,
+      eoq: initialEoq,
+      version: syncVersion,
+    };
+
+    if (initialQueuing) {
+      setQueuingInputs(initialQueuing);
+      setQueuingResult(null);
+    }
+    if (initialEoq) {
+      setEoqInputs(initialEoq);
+      setEoqResult(null);
+    }
+    if (preferredTab) {
+      setActiveTab(preferredTab);
+    }
+    setStatus('idle');
+    setStatusMessage('');
+  }, [initialQueuing, initialEoq, preferredTab, syncVersion]);
+
+  const updateQueuing = (updated: QueuingInputs) => {
+    setQueuingInputs(updated);
+    if (onUpdateActiveProblem) onUpdateActiveProblem(updated, undefined, 'queuing');
+  };
+
+  const updateEoq = (updated: EoqInputs) => {
+    setEoqInputs(updated);
+    if (onUpdateActiveProblem) onUpdateActiveProblem(updated, undefined, 'eoq');
+  };
 
   const handleSolveQueuing = () => {
     setStatus('running');
@@ -63,7 +116,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
           setStatusMessage(t.status.optimal);
         }
         if (onUpdateActiveProblem) {
-          onUpdateActiveProblem(queuingInputs, res);
+          onUpdateActiveProblem(queuingInputs, res, 'queuing');
         }
       } catch (err: any) {
         setStatus('error');
@@ -83,7 +136,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
         setStatus('completed');
         setStatusMessage(t.status.optimal);
         if (onUpdateActiveProblem) {
-          onUpdateActiveProblem(eoqInputs, res);
+          onUpdateActiveProblem(eoqInputs, res, 'eoq');
         }
       } catch (err: any) {
         setStatus('error');
@@ -109,7 +162,10 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
 
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
           <button
-            onClick={() => setActiveTab('queuing')}
+            onClick={() => {
+              setActiveTab('queuing');
+              if (onUpdateActiveProblem) onUpdateActiveProblem(queuingInputs, undefined, 'queuing');
+            }}
             className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-2 ${
               activeTab === 'queuing'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
@@ -120,7 +176,10 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
             <span>{t.queuingEoq.queuingTab}</span>
           </button>
           <button
-            onClick={() => setActiveTab('eoq')}
+            onClick={() => {
+              setActiveTab('eoq');
+              if (onUpdateActiveProblem) onUpdateActiveProblem(eoqInputs, undefined, 'eoq');
+            }}
             className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-2 ${
               activeTab === 'eoq'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
@@ -147,7 +206,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                 <select
                   value={queuingInputs.model}
                   onChange={(e) =>
-                    setQueuingInputs({
+                    updateQueuing({
                       ...queuingInputs,
                       model: e.target.value as QueuingModelType,
                     })
@@ -169,7 +228,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   step="any"
                   value={queuingInputs.arrivalRate}
                   onChange={(e) =>
-                    setQueuingInputs({
+                    updateQueuing({
                       ...queuingInputs,
                       arrivalRate: parseFloat(e.target.value) || 0,
                     })
@@ -187,7 +246,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   step="any"
                   value={queuingInputs.serviceRate}
                   onChange={(e) =>
-                    setQueuingInputs({
+                    updateQueuing({
                       ...queuingInputs,
                       serviceRate: parseFloat(e.target.value) || 0,
                     })
@@ -206,7 +265,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                     min="1"
                     value={queuingInputs.servers}
                     onChange={(e) =>
-                      setQueuingInputs({
+                      updateQueuing({
                         ...queuingInputs,
                         servers: parseInt(e.target.value, 10) || 1,
                       })
@@ -226,7 +285,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                     min="1"
                     value={queuingInputs.capacity}
                     onChange={(e) =>
-                      setQueuingInputs({
+                      updateQueuing({
                         ...queuingInputs,
                         capacity: parseInt(e.target.value, 10) || 1,
                       })
@@ -337,7 +396,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                 <select
                   value={eoqInputs.model}
                   onChange={(e) =>
-                    setEoqInputs({
+                    updateEoq({
                       ...eoqInputs,
                       model: e.target.value as EoqModelType,
                     })
@@ -359,7 +418,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   type="number"
                   value={eoqInputs.annualDemand}
                   onChange={(e) =>
-                    setEoqInputs({
+                    updateEoq({
                       ...eoqInputs,
                       annualDemand: parseFloat(e.target.value) || 0,
                     })
@@ -376,7 +435,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   type="number"
                   value={eoqInputs.orderCost}
                   onChange={(e) =>
-                    setEoqInputs({
+                    updateEoq({
                       ...eoqInputs,
                       orderCost: parseFloat(e.target.value) || 0,
                     })
@@ -393,7 +452,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   type="number"
                   value={eoqInputs.holdingCost}
                   onChange={(e) =>
-                    setEoqInputs({
+                    updateEoq({
                       ...eoqInputs,
                       holdingCost: parseFloat(e.target.value) || 0,
                     })
@@ -410,7 +469,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   type="number"
                   value={eoqInputs.unitCost}
                   onChange={(e) =>
-                    setEoqInputs({
+                    updateEoq({
                       ...eoqInputs,
                       unitCost: parseFloat(e.target.value) || 0,
                     })
@@ -428,7 +487,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                     type="number"
                     value={eoqInputs.backorderCost ?? 10}
                     onChange={(e) =>
-                      setEoqInputs({
+                      updateEoq({
                         ...eoqInputs,
                         backorderCost: parseFloat(e.target.value) || 0,
                       })
@@ -447,7 +506,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                     type="number"
                     value={eoqInputs.productionRate ?? 30000}
                     onChange={(e) =>
-                      setEoqInputs({
+                      updateEoq({
                         ...eoqInputs,
                         productionRate: parseFloat(e.target.value) || 0,
                       })
@@ -465,7 +524,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   type="number"
                   value={eoqInputs.leadTimeDays ?? 7}
                   onChange={(e) =>
-                    setEoqInputs({
+                    updateEoq({
                       ...eoqInputs,
                       leadTimeDays: parseFloat(e.target.value) || 0,
                     })

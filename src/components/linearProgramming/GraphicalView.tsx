@@ -39,15 +39,17 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
 }) => {
   const { t } = useI18n();
 
-  if (problem.variables.length !== 2) {
-    return (
-      <div className="p-6 text-center text-sm text-slate-500 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
-        {t.lp.noTwoVariablesGraph}
-      </div>
-    );
-  }
-
   const { cornerPoints, lines, maxX, maxY, feasiblePolygonSvg } = useMemo(() => {
+    if (problem.variables.length !== 2) {
+      return {
+        cornerPoints: [] as Point[],
+        lines: [] as Line[],
+        maxX: 10,
+        maxY: 10,
+        feasiblePolygonSvg: '',
+      };
+    }
+
     const linesList: Line[] = [];
 
     // Collect all boundary lines: constraints + non-negativity
@@ -228,6 +230,14 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
       feasiblePolygonSvg: polygonPath,
     };
   }, [problem, optimalPoint]);
+
+  if (problem.variables.length !== 2) {
+    return (
+      <div className="p-6 text-center text-sm text-slate-500 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-800">
+        {t.lp.noTwoVariablesGraph}
+      </div>
+    );
+  }
 
   // SVG coordinate transformation
   const toSvgX = (x: number) => 50 + (x / maxX) * 400;

@@ -7,7 +7,23 @@ import React, { useEffect, useState } from 'react';
 import { I18nProvider, useI18n } from './i18n/i18nContext';
 import { PlatformProvider, usePlatform } from './platform';
 import { OfflineIndicator } from './components/common/OfflineIndicator';
-import { AppSettings, ORModuleType, SavedProblem } from './types';
+import {
+  ActivityDef,
+  AppSettings,
+  AssignmentProblem,
+  AssignmentResult,
+  EoqInputs,
+  EoqResult,
+  LpProblem,
+  ORModuleType,
+  PertCpmResult,
+  QueuingInputs,
+  QueuingResult,
+  SavedProblem,
+  SimulationSummary,
+  TransportationProblem,
+  TransportationResult,
+} from './types';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './storage/db';
 import { Navbar } from './components/common/Navbar';
 import { LpModule } from './components/linearProgramming/LpModule';
@@ -21,6 +37,10 @@ import { ReportModal } from './components/reports/ReportModal';
 import { ReportData } from './engines/reportBuilder';
 import {
   INDUSTRIAL_BENCHMARK_LP,
+  SAMPLE_EOQ,
+  SAMPLE_PERT_CPM,
+  SAMPLE_QUEUING,
+  SAMPLE_TRANSPORTATION,
   SAMPLE_TWO_VAR_LP,
 } from './storage/sampleProblems';
 
@@ -31,18 +51,31 @@ function MainApp() {
   const [activeModule, setActiveModule] = useState<ORModuleType>('lp');
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
-  // Active problem representations per module
-  const [lpProblem, setLpProblem] = useState<any>(SAMPLE_TWO_VAR_LP);
+  // Active problem representations & results per module
+  const [lpProblem, setLpProblem] = useState<LpProblem>(SAMPLE_TWO_VAR_LP);
   const [lpResults, setLpResults] = useState<any>(null);
+  const [lpSyncVersion, setLpSyncVersion] = useState<number>(0);
 
-  const [transportProblem, setTransportProblem] = useState<any>(null);
-  const [transportResults, setTransportResults] = useState<any>(null);
+  const [transportProblem, setTransportProblem] = useState<
+    TransportationProblem | AssignmentProblem
+  >(SAMPLE_TRANSPORTATION);
+  const [transportResults, setTransportResults] = useState<
+    TransportationResult | AssignmentResult | null
+  >(null);
+  const [transportSyncVersion, setTransportSyncVersion] = useState<number>(0);
 
-  const [pertActivities, setPertActivities] = useState<any>(null);
-  const [pertResults, setPertResults] = useState<any>(null);
+  const [pertActivities, setPertActivities] = useState<ActivityDef[]>(SAMPLE_PERT_CPM);
+  const [pertResults, setPertResults] = useState<PertCpmResult | null>(null);
+  const [pertSyncVersion, setPertSyncVersion] = useState<number>(0);
 
-  const [queuingInputs, setQueuingInputs] = useState<any>(null);
-  const [eoqInputs, setEoqInputs] = useState<any>(null);
+  const [queuingInputs, setQueuingInputs] = useState<QueuingInputs>(SAMPLE_QUEUING);
+  const [queuingResults, setQueuingResults] = useState<QueuingResult | null>(null);
+  const [eoqInputs, setEoqInputs] = useState<EoqInputs>(SAMPLE_EOQ);
+  const [eoqResults, setEoqResults] = useState<EoqResult | null>(null);
+  const [queuingActiveTab, setQueuingActiveTab] = useState<'queuing' | 'eoq'>('queuing');
+  const [queuingSyncVersion, setQueuingSyncVersion] = useState<number>(0);
+
+  const [simulationSummary, setSimulationSummary] = useState<SimulationSummary | null>(null);
 
   // Modals state
   const [isSavedProblemsOpen, setIsSavedProblemsOpen] = useState(false);
@@ -92,41 +125,50 @@ function MainApp() {
     }
   };
 
-  const handleLoadProblem = (saved: SavedProblem) => {
-    setActiveModule(saved.module);
-    if (saved.module === 'lp') {
-      setLpProblem(saved.data);
-    } else if (saved.module === 'transportation') {
-      setTransportProblem(saved.data);
-    } else if (saved.module === 'pert') {
-      setPertActivities(saved.data);
-    } else if (saved.module === 'queuing_eoq') {
-      if ('arrivalRate' in saved.data) {
-        setQueuingInputs(saved.data);
+  const applyExternalProblem = (moduleType: ORModuleType, problemData: any) => {
+    setActiveModule(moduleType);
+    if (moduleType === 'lp') {
+      setLpProblem(problemData);
+      setLpResults(null);
+      setLpSyncVersion((v) => v + 1);
+    } else if (moduleType === 'transportation') {
+      setTransportProblem(problemData);
+      setTransportResults(null);
+      setTransportSyncVersion((v) => v + 1);
+    } else if (moduleType === 'pert') {
+      setPertActivities(problemData);
+      setPertResults(null);
+      setPertSyncVersion((v) => v + 1);
+    } else if (moduleType === 'queuing_eoq') {
+      if (problemData && 'arrivalRate' in problemData) {
+        setQueuingInputs(problemData);
+        setQueuingResults(null);
+        setQueuingActiveTab('queuing');
       } else {
-        setEoqInputs(saved.data);
+        setEoqInputs(problemData);
+        setEoqResults(null);
+        setQueuingActiveTab('eoq');
       }
+      setQueuingSyncVersion((v) => v + 1);
     }
+  };
+
+  const handleLoadProblem = (saved: SavedProblem) => {
+    applyExternalProblem(saved.module, saved.data);
   };
 
   const handleRunBenchmark = () => {
-    setActiveModule('lp');
-    setLpProblem(INDUSTRIAL_BENCHMARK_LP);
+    applyExternalProblem('lp', INDUSTRIAL_BENCHMARK_LP);
   };
 
   const handleSendSimulationScenario = (moduleType: ORModuleType, problemData: any) => {
-    setActiveModule(moduleType);
-    if (moduleType === 'lp') setLpProblem(problemData);
-    else if (moduleType === 'transportation') setTransportProblem(problemData);
-    else if (moduleType === 'pert') setPertActivities(problemData);
-    else if (moduleType === 'queuing_eoq') {
-      if ('arrivalRate' in problemData) setQueuingInputs(problemData);
-      else setEoqInputs(problemData);
-    }
+    applyExternalProblem(moduleType, problemData);
   };
 
   // Build report data for active module
   const currentReportData: ReportData = React.useMemo(() => {
+    const nowStr = new Date().toLocaleString();
+
     if (activeModule === 'lp') {
       const isIp = lpProblem?.isIntegerProgram;
       const optVal = isIp
@@ -136,7 +178,7 @@ function MainApp() {
         ? lpResults?.bb?.status || 'Solved'
         : lpResults?.simplex?.status || 'Solved';
 
-      const varAssignments = lpProblem?.variables?.map((v: any, idx: number) => {
+      const varAssignments = lpProblem?.variables?.map((v, idx) => {
         const val = isIp
           ? lpResults?.bb?.bestIntegerSolution?.[idx]
           : lpResults?.simplex?.variableValues?.[idx];
@@ -147,12 +189,12 @@ function MainApp() {
         title: lpProblem?.title || 'Linear Programming Problem',
         moduleName: isIp ? 'Integer / Binary Programming' : 'Linear Programming (Two-Phase Simplex)',
         language,
-        createdAt: new Date().toLocaleString(),
+        createdAt: nowStr,
         formulation: `Objective: ${lpProblem?.sense?.toUpperCase()} Z = ${lpProblem?.variables
-          ?.map((v: any) => `${v.objCoeff} ${v.name}`)
+          ?.map((v) => `${v.objCoeff} ${v.name}`)
           .join(' + ')}\n\nConstraints:\n${lpProblem?.constraints
           ?.map(
-            (c: any) =>
+            (c) =>
               `${c.name}: ${c.coeffs
                 .map((coeff: number, i: number) => `${coeff} ${lpProblem.variables[i]?.name}`)
                 .join(' + ')} ${c.op} ${c.rhs}`
@@ -184,16 +226,41 @@ function MainApp() {
     }
 
     if (activeModule === 'transportation') {
+      if (transportProblem && 'workers' in transportProblem) {
+        const assignRes =
+          transportResults && 'assignments' in transportResults ? transportResults : null;
+        return {
+          title: transportProblem.title || 'Hungarian Assignment Problem',
+          moduleName: 'Hungarian Assignment Model',
+          language,
+          createdAt: nowStr,
+          formulation: `Sense: ${transportProblem.sense.toUpperCase()} | Workers: ${transportProblem.workers.length}, Tasks: ${transportProblem.tasks.length}`,
+          solutionStatus: assignRes ? 'Optimal 1-to-1 Matching' : 'Not Solved Yet',
+          optimalObjective: assignRes?.totalCost,
+          additionalNotes: assignRes
+            ? assignRes.assignments.map(
+                (a) => `${a.workerName} → ${a.taskName} (Cost: ${a.cost})`
+              )
+            : undefined,
+        };
+      }
+
+      const tProb = transportProblem as TransportationProblem;
+      const tRes =
+        transportResults && 'allocations' in transportResults ? transportResults : null;
       return {
-        title: transportProblem?.title || 'Transportation Problem',
-        moduleName: 'Transportation & Assignment',
+        title: tProb?.title || 'Transportation Problem',
+        moduleName: `Transportation Network (${tProb?.method?.toUpperCase() || 'VAM'} + MODI)`,
         language,
-        createdAt: new Date().toLocaleString(),
-        formulation: `Sources: ${transportProblem?.sources?.length || 0}, Destinations: ${
-          transportProblem?.destinations?.length || 0
+        createdAt: nowStr,
+        formulation: `Sources: ${tProb?.sources?.length || 0}, Destinations: ${
+          tProb?.destinations?.length || 0
         }`,
-        solutionStatus: 'Optimal Distribution',
-        optimalObjective: transportResults?.totalCost,
+        solutionStatus: tRes ? 'Optimal Distribution' : 'Not Solved Yet',
+        optimalObjective: tRes?.totalCost,
+        additionalNotes: tRes?.dummyAdded
+          ? [`Balancing dummy ${tRes.dummyAdded} added automatically.`]
+          : undefined,
       };
     }
 
@@ -202,9 +269,9 @@ function MainApp() {
         title: 'Project Schedule (PERT / CPM)',
         moduleName: 'Project Network Management',
         language,
-        createdAt: new Date().toLocaleString(),
-        formulation: `Activities: ${pertActivities?.length || 8}`,
-        solutionStatus: 'Schedule Computed',
+        createdAt: nowStr,
+        formulation: `Activities: ${pertActivities?.length || 0}`,
+        solutionStatus: pertResults ? 'Schedule Computed' : 'Not Solved Yet',
         optimalObjective: pertResults?.totalDuration,
         additionalNotes: [
           `Critical Path: ${pertResults?.criticalPath?.join(' → ') || 'N/A'}`,
@@ -213,13 +280,74 @@ function MainApp() {
       };
     }
 
+    if (activeModule === 'queuing_eoq') {
+      if (queuingActiveTab === 'queuing') {
+        return {
+          title: `Queuing System Analysis (${queuingInputs.model.toUpperCase()})`,
+          moduleName: 'Queuing Theory',
+          language,
+          createdAt: nowStr,
+          formulation: `Model: ${queuingInputs.model.toUpperCase()}, Arrival Rate λ = ${queuingInputs.arrivalRate}, Service Rate μ = ${queuingInputs.serviceRate}, Servers c = ${queuingInputs.servers}`,
+          solutionStatus: queuingResults
+            ? queuingResults.rho < 1
+              ? 'Steady-State Computed'
+              : 'Unstable System (ρ ≥ 1)'
+            : 'Not Solved Yet',
+          optimalObjective: queuingResults?.w,
+          additionalNotes: queuingResults
+            ? [
+                `Server Utilization (ρ): ${(queuingResults.rho * 100).toFixed(2)}%`,
+                `Empty System Probability (P₀): ${(queuingResults.p0 * 100).toFixed(2)}%`,
+                `Expected Queue Length (Lq): ${queuingResults.lq.toFixed(4)}`,
+                `Expected System Length (L): ${queuingResults.l.toFixed(4)}`,
+                `Expected Queue Wait (Wq): ${queuingResults.wq.toFixed(4)}`,
+                `Expected Total Time (W): ${queuingResults.w.toFixed(4)}`,
+              ]
+            : undefined,
+        };
+      }
+
+      return {
+        title: `Inventory Optimization (${eoqInputs.model.toUpperCase()})`,
+        moduleName: 'Inventory Control & EOQ / EPQ',
+        language,
+        createdAt: nowStr,
+        formulation: `Model: ${eoqInputs.model}, Annual Demand D = ${eoqInputs.annualDemand}, Order Cost S = ${eoqInputs.orderCost}, Holding Cost H = ${eoqInputs.holdingCost}, Unit Cost C = ${eoqInputs.unitCost}`,
+        solutionStatus: eoqResults ? 'Optimal Policy Computed' : 'Not Solved Yet',
+        optimalObjective: eoqResults?.totalAnnualCost,
+        additionalNotes: eoqResults
+          ? [
+              `Optimal Order Quantity (Q*): ${eoqResults.optimalQty.toFixed(2)}`,
+              `Max Inventory Level: ${eoqResults.maxInventory.toFixed(2)}`,
+              `Orders Per Year: ${eoqResults.ordersPerYear.toFixed(2)}`,
+              `Cycle Time: ${eoqResults.cycleTimeDays.toFixed(1)} days`,
+              ...(eoqResults.reorderPoint !== undefined
+                ? [`Reorder Point (ROP): ${eoqResults.reorderPoint.toFixed(2)}`]
+                : []),
+            ]
+          : undefined,
+      };
+    }
+
     return {
-      title: 'Operations Research Problem',
-      moduleName: activeModule.toUpperCase(),
+      title: 'Monte Carlo & Scenario Simulation Analysis',
+      moduleName: 'Simulation & Sensitivity Explorer',
       language,
-      createdAt: new Date().toLocaleString(),
-      formulation: 'Formulation data available in module.',
-      solutionStatus: 'Optimal',
+      createdAt: nowStr,
+      formulation: simulationSummary
+        ? `Executed ${simulationSummary.totalScenarios} scenarios (${simulationSummary.feasibleCount} feasible, ${simulationSummary.infeasibleCount} infeasible).`
+        : 'No simulation batch executed yet.',
+      solutionStatus: simulationSummary ? 'Batch Completed' : 'Idle',
+      optimalObjective: simulationSummary?.meanValue,
+      simulationStats: simulationSummary
+        ? {
+            totalScenarios: simulationSummary.totalScenarios,
+            bestValue: simulationSummary.bestValue,
+            worstValue: simulationSummary.worstValue,
+            meanValue: simulationSummary.meanValue,
+            stdDevValue: simulationSummary.stdDevValue,
+          }
+        : undefined,
     };
   }, [
     activeModule,
@@ -230,6 +358,12 @@ function MainApp() {
     transportResults,
     pertActivities,
     pertResults,
+    queuingActiveTab,
+    queuingInputs,
+    queuingResults,
+    eoqInputs,
+    eoqResults,
+    simulationSummary,
   ]);
 
   const activeProblemForSaving =
@@ -239,7 +373,9 @@ function MainApp() {
       ? transportProblem
       : activeModule === 'pert'
       ? pertActivities
-      : queuingInputs || eoqInputs;
+      : queuingActiveTab === 'queuing'
+      ? queuingInputs
+      : eoqInputs;
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors">
@@ -262,6 +398,7 @@ function MainApp() {
         {activeModule === 'lp' && (
           <LpModule
             initialProblem={lpProblem}
+            syncVersion={lpSyncVersion}
             onUpdateActiveProblem={(prob, res) => {
               setLpProblem(prob);
               if (res) setLpResults(res);
@@ -275,6 +412,7 @@ function MainApp() {
         {activeModule === 'transportation' && (
           <TransportationModule
             initialProblem={transportProblem}
+            syncVersion={transportSyncVersion}
             onUpdateActiveProblem={(prob, res) => {
               setTransportProblem(prob);
               if (res) setTransportResults(res);
@@ -285,6 +423,7 @@ function MainApp() {
         {activeModule === 'pert' && (
           <PertCpmModule
             initialActivities={pertActivities}
+            syncVersion={pertSyncVersion}
             onUpdateActiveProblem={(acts, res) => {
               setPertActivities(acts);
               if (res) setPertResults(res);
@@ -296,9 +435,17 @@ function MainApp() {
           <QueuingEoqModule
             initialQueuing={queuingInputs}
             initialEoq={eoqInputs}
-            onUpdateActiveProblem={(prob) => {
-              if ('arrivalRate' in prob) setQueuingInputs(prob);
-              else setEoqInputs(prob);
+            preferredTab={queuingActiveTab}
+            syncVersion={queuingSyncVersion}
+            onUpdateActiveProblem={(prob, res, activeSubTab) => {
+              if (activeSubTab) setQueuingActiveTab(activeSubTab);
+              if ('arrivalRate' in prob) {
+                setQueuingInputs(prob);
+                if (res) setQueuingResults(res);
+              } else {
+                setEoqInputs(prob);
+                if (res) setEoqResults(res);
+              }
             }}
           />
         )}
@@ -309,11 +456,12 @@ function MainApp() {
               lp: lpProblem,
               transportation: transportProblem,
               pert: pertActivities,
-              queuing_eoq: queuingInputs || eoqInputs,
+              queuing_eoq: queuingActiveTab === 'queuing' ? queuingInputs : eoqInputs,
             }}
             activeModuleProblem={activeProblemForSaving}
             activeModuleType={activeModule}
             onSendToModule={handleSendSimulationScenario}
+            onUpdateSummary={setSimulationSummary}
             enableWorker={settings.webWorkerEnabled}
           />
         )}

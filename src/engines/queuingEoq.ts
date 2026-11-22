@@ -293,6 +293,10 @@ export function solveEoq(inputs: EoqInputs): EoqResult {
       continue; // handled by next tier
     }
 
+    if (candidateQ <= 0) {
+      candidateQ = 1e-6;
+    }
+
     const orderCost = (D / candidateQ) * S;
     const holdingCost = (candidateQ / 2) * tierHoldingCost;
     const purchaseCost = D * unitPrice;
@@ -305,6 +309,16 @@ export function solveEoq(inputs: EoqInputs): EoqResult {
       bestHoldingCost = holdingCost;
       bestPurchaseCost = purchaseCost;
     }
+  }
+
+  if (bestQty <= 0) {
+    const lastTier = tiers[tiers.length - 1];
+    const fallbackQ = Math.max(1, lastTier.minQty, Math.sqrt((2 * D * S) / H));
+    bestQty = fallbackQ;
+    bestOrderCost = (D / fallbackQ) * S;
+    bestHoldingCost = (fallbackQ / 2) * H;
+    bestPurchaseCost = D * lastTier.unitPrice;
+    minTotalCost = bestOrderCost + bestHoldingCost + bestPurchaseCost;
   }
 
   const ordersPerYear = D / bestQty;

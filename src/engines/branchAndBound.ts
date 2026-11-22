@@ -106,7 +106,7 @@ export function solveBranchAndBound(
   let integerSolutionsFound = 0;
   let accelerationsApplied = 0;
 
-  const heuristicCandidate = runPrimalHeuristic(rootRelaxation.variableValues, problem);
+  const heuristicCandidate = runPrimalHeuristic(rootRelaxation.variableValues, problemNormalized);
   if (heuristicCandidate) {
     bestIntegerSolution = heuristicCandidate.values;
     bestObjectiveValue = heuristicCandidate.objValue;
@@ -129,7 +129,7 @@ export function solveBranchAndBound(
     {
       id: nextNodeId++,
       depth: 0,
-      constraints: [...problem.constraints],
+      constraints: [...problemNormalized.constraints],
       bound: rootRelaxation.objectiveValue,
     },
   ];
@@ -158,7 +158,7 @@ export function solveBranchAndBound(
 
     // Solve relaxation at current node
     const nodeProblem: LpProblem = {
-      ...problem,
+      ...problemNormalized,
       constraints: currentNode.constraints,
     };
 

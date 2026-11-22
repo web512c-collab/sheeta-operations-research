@@ -187,8 +187,9 @@ export class TauriPlatformAdapter implements PlatformAdapter {
     async copy(text: string): Promise<boolean> {
       try {
         const tauri = getTauriApi();
-        if (tauri?.clipboard?.writeText) {
-          await tauri.clipboard.writeText(text);
+        const clipPlugin = tauri?.clipboardManager || tauri?.clipboard;
+        if (clipPlugin?.writeText) {
+          await clipPlugin.writeText(text);
           return true;
         }
         if (navigator.clipboard) {
@@ -204,8 +205,9 @@ export class TauriPlatformAdapter implements PlatformAdapter {
     async paste(): Promise<string> {
       try {
         const tauri = getTauriApi();
-        if (tauri?.clipboard?.readText) {
-          return await tauri.clipboard.readText();
+        const clipPlugin = tauri?.clipboardManager || tauri?.clipboard;
+        if (clipPlugin?.readText) {
+          return await clipPlugin.readText();
         }
         if (navigator.clipboard) {
           return await navigator.clipboard.readText();

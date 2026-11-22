@@ -3,13 +3,17 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.js",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "build:web": "vite build",
     "build:pwa": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "clean": "rm -rf dist server.js electron/*.js",
     "lint": "tsc --noEmit",
     "test": "npx tsx --test src/tests/orEngines.test.ts src/tests/platform.test.ts",
     "icons:generate": "node scripts/generate-icons.js",
@@ -20,8 +24,9 @@
     "ios:open": "npx @capacitor/cli open ios",
     "tauri:dev": "cargo tauri dev",
     "tauri:build": "npm run build && cargo tauri build",
-    "electron:dev": "npm run build && npx electron electron/main.ts",
-    "electron:build": "npm run build && npx electron-builder --config electron-builder.yml"
+    "electron:compile": "tsc -p electron/tsconfig.json",
+    "electron:dev": "npm run build && npm run electron:compile && npx electron .",
+    "electron:build": "npm run build && npm run electron:compile && npx electron-builder --config electron-builder.yml"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",

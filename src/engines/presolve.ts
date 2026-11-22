@@ -211,10 +211,12 @@ export function runMultiPassPresolve(problem: LpProblem): PresolveResult {
             report.push(`Pass 4: Variable ${v.name} is unconstrained with positive profit (Unbounded candidate).`);
           } else {
             fixedVarValues.set(j, v.upperBound);
+            fixedVariablesCount++;
             report.push(`Pass 4: Empty column ${v.name} fixed to UB (${v.upperBound}) to maximize objective.`);
           }
         } else {
           fixedVarValues.set(j, v.lowerBound);
+          fixedVariablesCount++;
           report.push(`Pass 4: Empty column ${v.name} fixed to LB (${v.lowerBound}) to maximize objective.`);
         }
       } else {
@@ -223,10 +225,12 @@ export function runMultiPassPresolve(problem: LpProblem): PresolveResult {
             report.push(`Pass 4: Variable ${v.name} is unconstrained with negative cost (Unbounded candidate).`);
           } else {
             fixedVarValues.set(j, v.upperBound);
+            fixedVariablesCount++;
             report.push(`Pass 4: Empty column ${v.name} fixed to UB (${v.upperBound}) to minimize objective.`);
           }
         } else {
           fixedVarValues.set(j, v.lowerBound);
+          fixedVariablesCount++;
           report.push(`Pass 4: Empty column ${v.name} fixed to LB (${v.lowerBound}) to minimize objective.`);
         }
       }

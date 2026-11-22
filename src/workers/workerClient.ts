@@ -3,10 +3,9 @@
  * Solver Worker Client with Main-Thread Fallback & Safe Cancellation
  */
 
-import { solveBranchAndBound } from '../engines/branchAndBound';
-import { reconstructFullSolution, runMultiPassPresolve } from '../engines/presolve';
+import { runBbSolvePipeline, runLpSolvePipeline } from '../engines/lpSolvePipeline';
+import { reconstructFullSolution } from '../engines/presolve';
 import { runSimulationBatch } from '../engines/simulation';
-import { solveTwoPhaseSimplex } from '../engines/simplexTwoPhase';
 import { BranchAndBoundResult, LpProblem, PresolveResult, SimplexSolution, SimulationSummary } from '../types';
 
 let workerInstance: Worker | null = null;
@@ -57,9 +56,16 @@ export async function requestSolveLp(
   if (worker) {
     return new Promise((resolve, reject) => {
       const id = ++currentRequestId;
-      const handler = (event: MessageEvent) => {
-        if (event.data.id === id) {
-          worker.removeEventListener('message', handler);
+
+      const cleanup = () => {
+        worker.removeEventListener('message', handleMessage);
+        worker.removeEventListener('error', handleError);
+        worker.removeEventListener('messageerror', handleMessageError);
+      };
+
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.id === id) {
+          cleanup();
           if (event.data.type === 'result') {
             hydratePresolve(event.data.data);
             resolve(event.data.data);
@@ -68,7 +74,20 @@ export async function requestSolveLp(
           }
         }
       };
-      worker.addEventListener('message', handler);
+
+      const handleError = (err: ErrorEvent) => {
+        cleanup();
+        reject(new Error(err.message || 'Solver Web Worker crashed unexpectedly'));
+      };
+
+      const handleMessageError = () => {
+        cleanup();
+        reject(new Error('Failed to deserialize response from Solver Web Worker'));
+      };
+
+      worker.addEventListener('message', handleMessage);
+      worker.addEventListener('error', handleError);
+      worker.addEventListener('messageerror', handleMessageError);
       worker.postMessage({
         id,
         type: 'solve_lp',
@@ -77,36 +96,7 @@ export async function requestSolveLp(
     });
   }
 
-  // Main-Thread Fallback
-  let prob = problem;
-  let presolveResult: PresolveResult | null = null;
-
-  if (enablePresolve) {
-    presolveResult = runMultiPassPresolve(problem);
-    if (presolveResult.isInfeasible) {
-      return {
-        simplex: {
-          status: 'infeasible',
-          objectiveValue: 0,
-          variableValues: new Array(problem.variables.length).fill(0),
-          slackValues: [],
-          iterations: 0,
-          executionTimeMs: presolveResult.stats.executionTimeMs,
-          errorMessage: presolveResult.infeasibilityReason,
-        },
-        presolve: presolveResult,
-      };
-    }
-    prob = presolveResult.problem;
-  }
-
-  const simplexSolution = solveTwoPhaseSimplex(prob);
-
-  if (presolveResult && simplexSolution.status === 'optimal') {
-    simplexSolution.variableValues = presolveResult.reconstructSolution!(simplexSolution.variableValues);
-  }
-
-  return { simplex: simplexSolution, presolve: presolveResult };
+  return runLpSolvePipeline(problem, enablePresolve);
 }
 
 export async function requestSolveBb(
@@ -121,9 +111,16 @@ export async function requestSolveBb(
   if (worker) {
     return new Promise((resolve, reject) => {
       const id = ++currentRequestId;
-      const handler = (event: MessageEvent) => {
-        if (event.data.id === id) {
-          worker.removeEventListener('message', handler);
+
+      const cleanup = () => {
+        worker.removeEventListener('message', handleMessage);
+        worker.removeEventListener('error', handleError);
+        worker.removeEventListener('messageerror', handleMessageError);
+      };
+
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.id === id) {
+          cleanup();
           if (event.data.type === 'result') {
             hydratePresolve(event.data.data);
             resolve(event.data.data);
@@ -132,7 +129,20 @@ export async function requestSolveBb(
           }
         }
       };
-      worker.addEventListener('message', handler);
+
+      const handleError = (err: ErrorEvent) => {
+        cleanup();
+        reject(new Error(err.message || 'Solver Web Worker crashed unexpectedly'));
+      };
+
+      const handleMessageError = () => {
+        cleanup();
+        reject(new Error('Failed to deserialize response from Solver Web Worker'));
+      };
+
+      worker.addEventListener('message', handleMessage);
+      worker.addEventListener('error', handleError);
+      worker.addEventListener('messageerror', handleMessageError);
       worker.postMessage({
         id,
         type: 'solve_bb',
@@ -141,60 +151,10 @@ export async function requestSolveBb(
     });
   }
 
-  // Main-thread fallback
-  let prob = problem;
-  let presolveResult: PresolveResult | null = null;
-
-  if (enablePresolve) {
-    presolveResult = runMultiPassPresolve(problem);
-    if (presolveResult.isInfeasible) {
-      return {
-        bb: {
-          status: 'infeasible',
-          lpRelaxation: {
-            status: 'infeasible',
-            objectiveValue: 0,
-            variableValues: new Array(problem.variables.length).fill(0),
-            slackValues: [],
-            iterations: 0,
-            executionTimeMs: presolveResult.stats.executionTimeMs,
-            errorMessage: presolveResult.infeasibilityReason,
-          },
-          stats: {
-            exploredNodes: 0,
-            prunedByBound: 0,
-            prunedInfeasible: 1,
-            integerSolutionsFound: 0,
-            maxDepthReached: 0,
-            executionTimeMs: presolveResult.stats.executionTimeMs,
-            integralityGapPercent: 0,
-            accelerationsApplied: 0,
-          },
-          warning: presolveResult.infeasibilityReason,
-        },
-        presolve: presolveResult,
-      };
-    }
-    prob = presolveResult.problem;
-  }
-
-  const bbResult = solveBranchAndBound(prob, {
+  return runBbSolvePipeline(problem, enablePresolve, {
     ...options,
     shouldCancel: () => mainThreadCancelFlag,
   });
-
-  if (presolveResult) {
-    if (bbResult.bestIntegerSolution) {
-      bbResult.bestIntegerSolution = presolveResult.reconstructSolution!(bbResult.bestIntegerSolution);
-    }
-    if (bbResult.lpRelaxation.status === 'optimal') {
-      bbResult.lpRelaxation.variableValues = presolveResult.reconstructSolution!(
-        bbResult.lpRelaxation.variableValues
-      );
-    }
-  }
-
-  return { bb: bbResult, presolve: presolveResult };
 }
 
 export async function requestRunSimulation(
@@ -208,20 +168,40 @@ export async function requestRunSimulation(
   if (worker) {
     return new Promise((resolve, reject) => {
       const id = ++currentRequestId;
-      const handler = (event: MessageEvent) => {
-        if (event.data.id === id) {
+
+      const cleanup = () => {
+        worker.removeEventListener('message', handleMessage);
+        worker.removeEventListener('error', handleError);
+        worker.removeEventListener('messageerror', handleMessageError);
+      };
+
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.id === id) {
           if (event.data.type === 'progress' && onProgress) {
             onProgress(event.data.data.completed, event.data.data.total);
           } else if (event.data.type === 'result') {
-            worker.removeEventListener('message', handler);
+            cleanup();
             resolve(event.data.data);
           } else if (event.data.type === 'error') {
-            worker.removeEventListener('message', handler);
+            cleanup();
             reject(new Error(event.data.error));
           }
         }
       };
-      worker.addEventListener('message', handler);
+
+      const handleError = (err: ErrorEvent) => {
+        cleanup();
+        reject(new Error(err.message || 'Simulation Web Worker crashed unexpectedly'));
+      };
+
+      const handleMessageError = () => {
+        cleanup();
+        reject(new Error('Failed to deserialize response from Simulation Web Worker'));
+      };
+
+      worker.addEventListener('message', handleMessage);
+      worker.addEventListener('error', handleError);
+      worker.addEventListener('messageerror', handleMessageError);
       worker.postMessage({
         id,
         type: 'run_simulation',

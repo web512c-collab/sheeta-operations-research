@@ -40,6 +40,7 @@ interface SimulationModuleProps {
   activeModuleProblem?: any;
   activeModuleType: ORModuleType;
   onSendToModule: (moduleType: ORModuleType, problemData: any) => void;
+  onUpdateSummary?: (summary: SimulationSummary) => void;
   enableWorker: boolean;
 }
 
@@ -224,6 +225,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
   activeModuleProblem,
   activeModuleType,
   onSendToModule,
+  onUpdateSummary,
   enableWorker,
 }) => {
   const { t } = useI18n();
@@ -310,6 +312,9 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
       );
 
       setSummary(summaryResult);
+      if (onUpdateSummary) {
+        onUpdateSummary(summaryResult);
+      }
       setStatus('completed');
       setStatusMessage(`Completed ${summaryResult.totalScenarios} scenarios.`);
       setCurrentPage(1);

@@ -3,7 +3,7 @@
  * Transportation & Hungarian Assignment Module
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AssignmentProblem,
   AssignmentResult,
@@ -25,23 +25,70 @@ import { ArrowRight, CheckCircle2, Play, Plus, Trash2, Truck, Users } from 'luci
 
 interface TransportationModuleProps {
   initialProblem?: TransportationProblem | AssignmentProblem;
+  syncVersion?: number;
   onUpdateActiveProblem?: (problem: any, results?: any) => void;
 }
 
+function isAssignmentProblem(
+  prob: TransportationProblem | AssignmentProblem
+): prob is AssignmentProblem {
+  return 'workers' in prob && Array.isArray(prob.workers);
+}
+
 export const TransportationModule: React.FC<TransportationModuleProps> = ({
+  initialProblem,
+  syncVersion,
   onUpdateActiveProblem,
 }) => {
   const { t } = useI18n();
 
-  const [mode, setMode] = useState<'transportation' | 'assignment'>('transportation');
-  const [transportProblem, setTransportProblem] = useState<TransportationProblem>(SAMPLE_TRANSPORTATION);
-  const [assignProblem, setAssignProblem] = useState<AssignmentProblem>(SAMPLE_ASSIGNMENT);
+  const initialIsAssign = initialProblem ? isAssignmentProblem(initialProblem) : false;
+
+  const [mode, setMode] = useState<'transportation' | 'assignment'>(
+    initialIsAssign ? 'assignment' : 'transportation'
+  );
+  const [transportProblem, setTransportProblem] = useState<TransportationProblem>(
+    initialProblem && !isAssignmentProblem(initialProblem)
+      ? initialProblem
+      : SAMPLE_TRANSPORTATION
+  );
+  const [assignProblem, setAssignProblem] = useState<AssignmentProblem>(
+    initialProblem && isAssignmentProblem(initialProblem)
+      ? initialProblem
+      : SAMPLE_ASSIGNMENT
+  );
 
   const [transportResult, setTransportResult] = useState<TransportationResult | null>(null);
   const [assignResult, setAssignResult] = useState<AssignmentResult | null>(null);
 
   const [status, setStatus] = useState<RunStatus>('idle');
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const lastSyncRef = useRef<{ problem?: TransportationProblem | AssignmentProblem; version?: number }>({
+    problem: initialProblem,
+    version: syncVersion,
+  });
+
+  useEffect(() => {
+    if (!initialProblem) return;
+    if (syncVersion !== undefined) {
+      if (lastSyncRef.current.version === syncVersion) return;
+    } else if (lastSyncRef.current.problem === initialProblem) {
+      return;
+    }
+    lastSyncRef.current = { problem: initialProblem, version: syncVersion };
+
+    if (isAssignmentProblem(initialProblem)) {
+      setMode('assignment');
+      setAssignProblem(initialProblem);
+      setAssignResult(null);
+    } else {
+      setMode('transportation');
+      setTransportProblem(initialProblem);
+      setTransportResult(null);
+    }
+    setStatus('idle');
+    setStatusMessage('');
+  }, [initialProblem, syncVersion]);
 
   // Handle Solve
   const handleSolve = () => {
@@ -74,6 +121,16 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
     }, 50);
   };
 
+  const commitTransport = (updated: TransportationProblem) => {
+    setTransportProblem(updated);
+    if (onUpdateActiveProblem) onUpdateActiveProblem(updated);
+  };
+
+  const commitAssign = (updated: AssignmentProblem) => {
+    setAssignProblem(updated);
+    if (onUpdateActiveProblem) onUpdateActiveProblem(updated);
+  };
+
   // Transportation Source/Destination mutations
   const addSource = () => {
     const nextIdx = transportProblem.sources.length + 1;
@@ -85,16 +142,14 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
       ...transportProblem.costs,
       new Array(transportProblem.destinations.length).fill(10),
     ];
-    const updated = { ...transportProblem, sources: newSources, costs: newCosts };
-    setTransportProblem(updated);
+    commitTransport({ ...transportProblem, sources: newSources, costs: newCosts });
   };
 
   const removeSource = (idx: number) => {
     if (transportProblem.sources.length <= 1) return;
     const newSources = transportProblem.sources.filter((_, i) => i !== idx);
     const newCosts = transportProblem.costs.filter((_, i) => i !== idx);
-    const updated = { ...transportProblem, sources: newSources, costs: newCosts };
-    setTransportProblem(updated);
+    commitTransport({ ...transportProblem, sources: newSources, costs: newCosts });
   };
 
   const addDestination = () => {
@@ -104,14 +159,13 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
       { id: `d${nextIdx}`, name: `Market ${nextIdx}`, demand: 100 },
     ];
     const newCosts = transportProblem.costs.map((row) => [...row, 10]);
-    const updated = { ...transportProblem, destinations: newDests, costs: newCosts };
-    setTransportProblem(updated);
+    commitTransport({ ...transportProblem, destinations: newDests, costs: newCosts });
   };
 
   const updateCost = (r: number, c: number, val: number) => {
     const newCosts = transportProblem.costs.map((row) => [...row]);
     newCosts[r][c] = val;
-    setTransportProblem({ ...transportProblem, costs: newCosts });
+    commitTransport({ ...transportProblem, costs: newCosts });
   };
 
   // Hungarian mutations
@@ -121,7 +175,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
     const newTasks = [...assignProblem.tasks, `Task ${n}`];
     const newCosts = assignProblem.costs.map((row) => [...row, 50]);
     newCosts.push(new Array(newTasks.length).fill(50));
-    setAssignProblem({ ...assignProblem, workers: newWorkers, tasks: newTasks, costs: newCosts });
+    commitAssign({ ...assignProblem, workers: newWorkers, tasks: newTasks, costs: newCosts });
   };
 
   const removeWorkerAndTask = () => {
@@ -129,13 +183,13 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
     const newWorkers = assignProblem.workers.slice(0, -1);
     const newTasks = assignProblem.tasks.slice(0, -1);
     const newCosts = assignProblem.costs.slice(0, -1).map((row) => row.slice(0, -1));
-    setAssignProblem({ ...assignProblem, workers: newWorkers, tasks: newTasks, costs: newCosts });
+    commitAssign({ ...assignProblem, workers: newWorkers, tasks: newTasks, costs: newCosts });
   };
 
   const updateAssignCost = (r: number, c: number, val: number) => {
     const newCosts = assignProblem.costs.map((row) => [...row]);
     newCosts[r][c] = val;
-    setAssignProblem({ ...assignProblem, costs: newCosts });
+    commitAssign({ ...assignProblem, costs: newCosts });
   };
 
   const totalSupply = transportProblem.sources.reduce((sum, s) => sum + s.capacity, 0);
@@ -159,7 +213,10 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
 
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
           <button
-            onClick={() => setMode('transportation')}
+            onClick={() => {
+              setMode('transportation');
+              if (onUpdateActiveProblem) onUpdateActiveProblem(transportProblem);
+            }}
             className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-2 ${
               mode === 'transportation'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
@@ -170,7 +227,10 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
             <span>{t.transportation.transportationMode}</span>
           </button>
           <button
-            onClick={() => setMode('assignment')}
+            onClick={() => {
+              setMode('assignment');
+              if (onUpdateActiveProblem) onUpdateActiveProblem(assignProblem);
+            }}
             className={`px-4 py-1.5 text-xs font-semibold rounded-md transition-all flex items-center gap-2 ${
               mode === 'assignment'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
@@ -252,9 +312,10 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                           type="text"
                           value={d.name}
                           onChange={(e) => {
-                            const newDests = [...transportProblem.destinations];
-                            newDests[dIdx].name = e.target.value;
-                            setTransportProblem({ ...transportProblem, destinations: newDests });
+                            const newDests = transportProblem.destinations.map((dest, idx) =>
+                              idx === dIdx ? { ...dest, name: e.target.value } : dest
+                            );
+                            commitTransport({ ...transportProblem, destinations: newDests });
                           }}
                           className="w-24 text-center px-1.5 py-0.5 bg-transparent border-b border-dashed border-slate-300 dark:border-slate-600 font-semibold"
                         />
@@ -264,9 +325,11 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                             type="number"
                             value={d.demand}
                             onChange={(e) => {
-                              const newDests = [...transportProblem.destinations];
-                              newDests[dIdx].demand = parseFloat(e.target.value) || 0;
-                              setTransportProblem({ ...transportProblem, destinations: newDests });
+                              const newDemand = parseFloat(e.target.value) || 0;
+                              const newDests = transportProblem.destinations.map((dest, idx) =>
+                                idx === dIdx ? { ...dest, demand: newDemand } : dest
+                              );
+                              commitTransport({ ...transportProblem, destinations: newDests });
                             }}
                             className="w-14 text-center px-1 py-0.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-mono text-[11px]"
                           />
@@ -286,9 +349,10 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                         type="text"
                         value={s.name}
                         onChange={(e) => {
-                          const newSources = [...transportProblem.sources];
-                          newSources[sIdx].name = e.target.value;
-                          setTransportProblem({ ...transportProblem, sources: newSources });
+                          const newSources = transportProblem.sources.map((src, idx) =>
+                            idx === sIdx ? { ...src, name: e.target.value } : src
+                          );
+                          commitTransport({ ...transportProblem, sources: newSources });
                         }}
                         className="w-32 px-2 py-1 bg-transparent border-b border-dashed border-slate-300 dark:border-slate-600 font-semibold"
                       />
@@ -310,9 +374,11 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                         type="number"
                         value={s.capacity}
                         onChange={(e) => {
-                          const newSources = [...transportProblem.sources];
-                          newSources[sIdx].capacity = parseFloat(e.target.value) || 0;
-                          setTransportProblem({ ...transportProblem, sources: newSources });
+                          const newCapacity = parseFloat(e.target.value) || 0;
+                          const newSources = transportProblem.sources.map((src, idx) =>
+                            idx === sIdx ? { ...src, capacity: newCapacity } : src
+                          );
+                          commitTransport({ ...transportProblem, sources: newSources });
                         }}
                         className="w-16 text-center px-1.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-mono font-bold text-xs"
                       />

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dev-dist/
+electron/*.js
 release/
 coverage/
 android/app/build/

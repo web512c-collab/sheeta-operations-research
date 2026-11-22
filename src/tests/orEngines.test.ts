@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { solveTwoPhaseSimplex } from '../engines/simplexTwoPhase';
 import { runMultiPassPresolve } from '../engines/presolve';
+import { runBbSolvePipeline, runLpSolvePipeline } from '../engines/lpSolvePipeline';
 import { solveBranchAndBound } from '../engines/branchAndBound';
 import { solveTransportation, solveHungarianAssignment } from '../engines/transportation';
 import { solvePertCpm } from '../engines/pertCpm';
@@ -236,4 +237,85 @@ test('Simulation Engine: Runs Parameter Sweep on LP problem with step-by-step ev
   // Objective should increase as labor capacity increases from 60 to 140
   assert.ok(summary.scenarios[4].objectiveValue >= summary.scenarios[0].objectiveValue);
 });
+
+test('LP & B&B Pipelines: Preserve fixed variable objective contributions and handle all-fixed presolve', () => {
+  // Partial presolve fixing: x1 is fixed to [10, 10] with objCoeff 5 (contributes +50)
+  const partialFixedIp: LpProblem = {
+    title: 'Partial Presolve Fixed Contribution',
+    sense: 'maximize',
+    isIntegerProgram: true,
+    variables: [
+      { id: 'x1', name: 'Fixed', type: 'integer', objCoeff: 5, lowerBound: 10, upperBound: 10 },
+      { id: 'x2', name: 'Free', type: 'integer', objCoeff: 12, lowerBound: 0, upperBound: 10 },
+    ],
+    constraints: [
+      { id: 'c1', name: 'Joint Capacity', coeffs: [1, 2], op: '<=', rhs: 20 }, // 10 + 2*x2 <= 20 => x2 <= 5
+    ],
+  };
+
+  const lpRes = runLpSolvePipeline(partialFixedIp, true);
+  assert.equal(lpRes.simplex.status, 'optimal');
+  assert.equal(lpRes.simplex.variableValues[0], 10);
+  assert.equal(lpRes.simplex.variableValues[1], 5);
+  assert.ok(Math.abs(lpRes.simplex.objectiveValue - 110) < 1e-4);
+
+  const bbRes = runBbSolvePipeline(partialFixedIp, true);
+  assert.equal(bbRes.bb.status, 'optimal');
+  assert.ok(Math.abs((bbRes.bb.bestObjectiveValue ?? 0) - 110) < 1e-4);
+  assert.equal(bbRes.bb.bestIntegerSolution?.[0], 10);
+  assert.equal(bbRes.bb.bestIntegerSolution?.[1], 5);
+
+  // Degenerate case: ALL variables fixed by bounds (reduced problem has 0 variables)
+  const allFixedLp: LpProblem = {
+    title: 'All Fixed Presolve Test',
+    sense: 'maximize',
+    isIntegerProgram: true,
+    variables: [
+      { id: 'x1', name: 'x1', type: 'binary', objCoeff: 7, lowerBound: 1, upperBound: 1 },
+      { id: 'x2', name: 'x2', type: 'integer', objCoeff: 3, lowerBound: 4, upperBound: 4 },
+    ],
+    constraints: [
+      { id: 'c1', name: 'Budget', coeffs: [2, 1], op: '<=', rhs: 10 },
+    ],
+  };
+
+  const lpAllFixed = runLpSolvePipeline(allFixedLp, true);
+  assert.equal(lpAllFixed.simplex.status, 'optimal');
+  assert.deepEqual(lpAllFixed.simplex.variableValues, [1, 4]);
+  assert.ok(Math.abs(lpAllFixed.simplex.objectiveValue - 19) < 1e-4);
+
+  const bbAllFixed = runBbSolvePipeline(allFixedLp, true);
+  assert.equal(bbAllFixed.bb.status, 'optimal');
+  assert.deepEqual(bbAllFixed.bb.bestIntegerSolution, [1, 4]);
+  assert.ok(Math.abs((bbAllFixed.bb.bestObjectiveValue ?? 0) - 19) < 1e-4);
+});
+
+test('EOQ Discounts: Handles near-zero demand/tier safely without Infinity or NaN', () => {
+  const resZero = solveEoq({
+    model: 'discounts',
+    annualDemand: 0,
+    orderCost: 100,
+    holdingCost: 5,
+    unitCost: 20,
+    discountTiers: [{ minQty: 0, unitPrice: 20 }],
+  });
+  assert.ok(Number.isFinite(resZero.optimalQty) && resZero.optimalQty > 0);
+  assert.ok(Number.isFinite(resZero.totalAnnualCost));
+
+  const resMultiTier = solveEoq({
+    model: 'discounts',
+    annualDemand: 10000,
+    orderCost: 120,
+    holdingCost: 4,
+    unitCost: 25,
+    discountTiers: [
+      { minQty: 0, unitPrice: 25 },
+      { minQty: 500, unitPrice: 23 },
+      { minQty: 1500, unitPrice: 21 },
+    ],
+  });
+  assert.ok(Number.isFinite(resMultiTier.optimalQty) && resMultiTier.optimalQty >= 500);
+  assert.ok(Number.isFinite(resMultiTier.totalAnnualCost) && resMultiTier.totalAnnualCost > 0);
+});
+
 

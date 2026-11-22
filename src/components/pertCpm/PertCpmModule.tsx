@@ -3,7 +3,7 @@
  * Project Network Management (PERT / CPM) Module
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityDef, PertCpmResult, RunStatus } from '../../types';
 import { useI18n } from '../../i18n/i18nContext';
 import { SAMPLE_PERT_CPM } from '../../storage/sampleProblems';
@@ -18,11 +18,13 @@ import {
 
 interface PertCpmModuleProps {
   initialActivities?: ActivityDef[];
+  syncVersion?: number;
   onUpdateActiveProblem?: (activities: ActivityDef[], results?: any) => void;
 }
 
 export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
   initialActivities,
+  syncVersion,
   onUpdateActiveProblem,
 }) => {
   const { t } = useI18n();
@@ -37,6 +39,27 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
   const [statusMessage, setStatusMessage] = useState<string>('');
 
   const [targetDays, setTargetDays] = useState<number>(30);
+  const lastSyncRef = useRef<{ activities?: ActivityDef[]; version?: number }>({
+    activities: initialActivities,
+    version: syncVersion,
+  });
+
+  useEffect(() => {
+    if (!initialActivities) return;
+    if (syncVersion !== undefined) {
+      if (lastSyncRef.current.version === syncVersion) return;
+    } else if (lastSyncRef.current.activities === initialActivities) {
+      return;
+    }
+    lastSyncRef.current = { activities: initialActivities, version: syncVersion };
+    setActivities(initialActivities);
+    if (initialActivities[0]?.durationMode) {
+      setDurationMode(initialActivities[0].durationMode);
+    }
+    setResult(null);
+    setStatus('idle');
+    setStatusMessage('');
+  }, [initialActivities, syncVersion]);
 
   const handleSolve = () => {
     setStatus('running');
@@ -61,6 +84,11 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
     }, 50);
   };
 
+  const commitActivities = (updated: ActivityDef[]) => {
+    setActivities(updated);
+    if (onUpdateActiveProblem) onUpdateActiveProblem(updated);
+  };
+
   const addActivity = () => {
     const nextCode = String.fromCharCode(65 + activities.length);
     const newAct: ActivityDef = {
@@ -73,18 +101,18 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
       mostLikely: 5,
       pessimistic: 9,
     };
-    setActivities([...activities, newAct]);
+    commitActivities([...activities, newAct]);
   };
 
   const removeActivity = (idx: number) => {
     if (activities.length <= 1) return;
-    setActivities(activities.filter((_, i) => i !== idx));
+    commitActivities(activities.filter((_, i) => i !== idx));
   };
 
   const updateActivity = (idx: number, patch: Partial<ActivityDef>) => {
     const updated = [...activities];
     updated[idx] = { ...updated[idx], ...patch };
-    setActivities(updated);
+    commitActivities(updated);
   };
 
   const calculatedProb =
@@ -384,7 +412,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                     <div className="w-20 font-mono font-bold text-slate-700 dark:text-slate-300 truncate">
                       {act.id} ({act.expectedDuration.toFixed(1)}d)
                     </div>
-                    <div className="flex-1 bg-slate-100 dark:bg-slate-800 h-6 rounded-md relative overflow-hidden">
+                    <div dir="ltr" className="flex-1 bg-slate-100 dark:bg-slate-800 h-6 rounded-md relative overflow-hidden">
                       <div
                         className={`h-full rounded-md flex items-center px-2 text-[10px] text-white font-bold transition-all ${
                           act.isCritical ? 'bg-rose-500' : 'bg-indigo-500'

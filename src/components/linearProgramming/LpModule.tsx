@@ -40,6 +40,7 @@ import {
 
 interface LpModuleProps {
   initialProblem?: LpProblem;
+  syncVersion?: number;
   onUpdateActiveProblem?: (problem: LpProblem, results?: any) => void;
   enablePresolve: boolean;
   enableWorker: boolean;
@@ -48,6 +49,7 @@ interface LpModuleProps {
 
 export const LpModule: React.FC<LpModuleProps> = ({
   initialProblem,
+  syncVersion,
   onUpdateActiveProblem,
   enablePresolve,
   enableWorker,
@@ -65,17 +67,26 @@ export const LpModule: React.FC<LpModuleProps> = ({
   const [simplexSolution, setSimplexSolution] = useState<SimplexSolution | null>(null);
   const [bbResult, setBbResult] = useState<BranchAndBoundResult | null>(null);
   const [presolveResult, setPresolveResult] = useState<PresolveResult | null>(null);
+  const lastSyncRef = React.useRef<{ problem?: LpProblem; version?: number }>({
+    problem: initialProblem,
+    version: syncVersion,
+  });
 
-  // Sync with active problem if loaded from outside
+  // Sync with active problem only when loaded/replaced externally
   React.useEffect(() => {
-    if (initialProblem) {
-      setProblem(initialProblem);
-      setSimplexSolution(null);
-      setBbResult(null);
-      setPresolveResult(null);
-      setStatus('idle');
+    if (!initialProblem) return;
+    if (syncVersion !== undefined) {
+      if (lastSyncRef.current.version === syncVersion) return;
+    } else if (lastSyncRef.current.problem === initialProblem) {
+      return;
     }
-  }, [initialProblem]);
+    lastSyncRef.current = { problem: initialProblem, version: syncVersion };
+    setProblem(initialProblem);
+    setSimplexSolution(null);
+    setBbResult(null);
+    setPresolveResult(null);
+    setStatus('idle');
+  }, [initialProblem, syncVersion]);
 
   // Handle Sense change
   const handleSenseChange = (sense: 'maximize' | 'minimize') => {
