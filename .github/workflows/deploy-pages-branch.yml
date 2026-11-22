@@ -1,0 +1,49 @@
+name: Deploy Sheeta Operations Research to gh-pages Branch (Fallback)
+
+# Disabled by default: only runs when manually triggered from the Actions tab.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: 'pages-branch'
+  cancel-in-progress: false
+
+jobs:
+  deploy-branch:
+    name: Build and Deploy to gh-pages Branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Web PWA for GitHub Pages
+        env:
+          VITE_BASE: /sheeta-operations-research/
+        run: npm run build:pwa
+
+      - name: Verify Build Output
+        run: |
+          if [ ! -f dist/index.html ]; then
+            echo "::error::Build verification failed: dist/index.html does not exist."
+            exit 1
+          fi
+          echo "Verified dist/index.html exists."
+
+      - name: Deploy to gh-pages Branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          force_orphan: true

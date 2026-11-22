@@ -5,26 +5,96 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Permissions required for GitHub Pages deployment
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# Do NOT cancel in-progress runs as we want to allow these production deployments to complete cleanly.
 concurrency:
   group: 'pages'
   cancel-in-progress: false
 
 jobs:
   # =========================================================================
-  # Build job: Build Vite + PWA bundle with sub-path base
+  # Build Job: Preflight Pages Check, Build Vite + PWA, Verify & Upload
   # =========================================================================
   build:
     name: Build PWA for GitHub Pages
     runs-on: ubuntu-latest
     steps:
+      - name: Verify or Enable GitHub Pages Site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGES_ENABLEMENT_TOKEN: ${{ secrets.PAGES_ENABLEMENT_TOKEN }}
+        run: |
+          set +e
+          RESPONSE=$(gh api "repos/${{ github.repository }}/pages" 2>&1)
+          STATUS=$?
+          set -e
+
+          if [ "$STATUS" -eq 0 ]; then
+            BUILD_TYPE=$(printf '%s' "$RESPONSE" | jq -r '.build_type // empty' 2>/dev/null || true)
+            echo "GitHub Pages is enabled (build_type=${BUILD_TYPE:-unknown})."
+
+            if [ "$BUILD_TYPE" != "workflow" ]; then
+              if [ -n "$PAGES_ENABLEMENT_TOKEN" ]; then
+                echo "Switching GitHub Pages source to GitHub Actions using PAGES_ENABLEMENT_TOKEN..."
+                if GH_TOKEN="$PAGES_ENABLEMENT_TOKEN" gh api -X PUT "repos/${{ github.repository }}/pages" -f build_type=workflow >/dev/null 2>&1; then
+                  echo "Successfully updated GitHub Pages source to GitHub Actions."
+                else
+                  echo "::error::Failed to update GitHub Pages source to GitHub Actions via PAGES_ENABLEMENT_TOKEN."
+                  echo "Manual fix: Open Settings > Pages > Build and deployment > Source, and select 'GitHub Actions'."
+                  exit 1
+                fi
+              else
+                echo "::error::GitHub Pages is enabled, but its Source is set to '${BUILD_TYPE:-legacy}' instead of 'GitHub Actions'."
+                echo "Manual fix required:"
+                echo "  1. Open your repository on GitHub."
+                echo "  2. Go to Settings > Pages (under Code and automation)."
+                echo "  3. Under 'Build and deployment' > 'Source', select 'GitHub Actions'."
+                echo "  4. Re-run this workflow."
+                exit 1
+              fi
+            fi
+          else
+            if printf '%s' "$RESPONSE" | grep -qE "404|Not Found"; then
+              if [ -n "$PAGES_ENABLEMENT_TOKEN" ]; then
+                echo "GitHub Pages is not enabled yet. Attempting automatic enablement via PAGES_ENABLEMENT_TOKEN..."
+                set +e
+                ENABLE_OUT=$(GH_TOKEN="$PAGES_ENABLEMENT_TOKEN" gh api -X POST "repos/${{ github.repository }}/pages" -f build_type=workflow 2>&1)
+                ENABLE_STATUS=$?
+                set -e
+
+                if [ "$ENABLE_STATUS" -eq 0 ]; then
+                  echo "GitHub Pages enabled and configured for GitHub Actions."
+                else
+                  echo "::error::Automatic Pages enablement failed: $ENABLE_OUT"
+                  echo "Ensure PAGES_ENABLEMENT_TOKEN has repository Administration:write (or classic repo) permissions, or enable Pages manually:"
+                  echo "  Settings > Pages > Build and deployment > Source > GitHub Actions"
+                  exit 1
+                fi
+              else
+                echo "::error::GitHub Pages is not enabled for ${{ github.repository }} (API returned 404 Not Found)."
+                echo ""
+                echo "The default GITHUB_TOKEN cannot enable GitHub Pages on a repository."
+                echo "Please complete this one-time manual setup on GitHub:"
+                echo "  1. Open https://github.com/${{ github.repository }}/settings/pages"
+                echo "  2. Under 'Build and deployment' > 'Source', change the dropdown to 'GitHub Actions'."
+                echo "  3. Ensure the repository is public (or on a plan that supports Pages for private repos)."
+                echo "  4. Return to the Actions tab and click 'Re-run all jobs'."
+                echo ""
+                echo "Alternative options:"
+                echo "  - Add a PAT secret named PAGES_ENABLEMENT_TOKEN to auto-enable Pages from CI."
+                echo "  - Or run the fallback workflow '.github/workflows/deploy-pages-branch.yml' to deploy via the 'gh-pages' branch."
+                exit 1
+              fi
+            else
+              echo "::error::Unexpected error checking GitHub Pages status: $RESPONSE"
+              echo "Verify repository permissions (pages: write, id-token: write) and organization Pages policies."
+              exit 1
+            fi
+          fi
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -33,21 +103,25 @@ jobs:
         with:
           node-version: 20
 
-      - name: Setup Pages Configuration
-        uses: actions/configure-pages@v5
-
       - name: Install Dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci --ignore-scripts || npm install --ignore-scripts
-          else
-            npm install --ignore-scripts
-          fi
+        run: npm install
 
       - name: Build Web PWA for GitHub Pages
         env:
           VITE_BASE: /sheeta-operations-research/
         run: npm run build:pwa
+
+      - name: Verify Build Output
+        run: |
+          if [ ! -f dist/index.html ]; then
+            echo "::error::Build verification failed: dist/index.html does not exist."
+            exit 1
+          fi
+          echo "Verified dist/index.html exists."
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
@@ -55,7 +129,7 @@ jobs:
           path: 'dist'
 
   # =========================================================================
-  # Deployment job: Publish artifact to GitHub Pages
+  # Deployment Job: Publish Artifact to GitHub Pages Environment
   # =========================================================================
   deploy:
     name: Deploy to GitHub Pages
