@@ -6,8 +6,11 @@ import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  const rawBase = process.env.VITE_BASE || './';
+  const base = rawBase === './' ? './' : (rawBase.endsWith('/') ? rawBase : `${rawBase}/`);
+
   return {
-    base: './',
+    base,
     plugins: [
       react(),
       tailwindcss(),
@@ -15,7 +18,7 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'icon.svg', 'apple-touch-icon.png'],
         manifest: {
-          id: '/',
+          id: base,
           name: 'Sheeta Operations Research',
           short_name: 'Sheeta OR',
           description:
@@ -24,8 +27,8 @@ export default defineConfig(() => {
           background_color: '#0f172a',
           display: 'standalone',
           orientation: 'any',
-          start_url: './',
-          scope: './',
+          start_url: base,
+          scope: base,
           icons: [
             {
               src: 'pwa-192x192.png',
@@ -72,6 +75,17 @@ export default defineConfig(() => {
           if (fs.existsSync(distDir) && fs.existsSync(srcAssets)) {
             fs.cpSync(srcAssets, distAssets, {recursive: true, force: true});
           }
+
+          // Generate 404.html fallback for GitHub Pages SPA routing
+          const distHtml = path.resolve(distDir, 'index.html');
+          const dist404 = path.resolve(distDir, '404.html');
+          if (fs.existsSync(distHtml)) {
+            fs.copyFileSync(distHtml, dist404);
+          }
+
+          // Generate .nojekyll for GitHub Pages
+          const nojekyll = path.resolve(distDir, '.nojekyll');
+          fs.writeFileSync(nojekyll, '', 'utf8');
         },
       },
     ],

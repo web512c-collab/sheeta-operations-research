@@ -5,6 +5,28 @@
 
 ---
 
+## 🌐 Live Demo & Instant Web App
+
+Access the production application directly in your browser with zero setup:
+
+🔗 **[https://USERNAME.github.io/sheeta-operations-research/](https://USERNAME.github.io/sheeta-operations-research/)**  
+*(Replace `USERNAME` with your GitHub username or organization name)*
+
+### 📲 How to Install as an Offline PWA
+
+Install Sheeta Operations Research to run full-screen, standalone, and completely offline:
+
+- **Android (Chrome, Edge, Samsung Internet):**
+  - Tap the **"Install App"** button in the top navigation bar, or open the browser menu (`⋮`) and select **"Add to Home screen"** / **"Install application"**.
+- **iOS / iPadOS (Safari):**
+  - Tap the **Share** button (square with an arrow pointing up), scroll down, and select **"Add to Home Screen"** (`+`).
+- **Desktop (Chrome, Edge, Brave, Opera):**
+  - Click the **Install** icon in your browser's URL address bar (or click the **"Install App"** button in the top bar).
+- **100% Offline Capability:**
+  - The Service Worker automatically precaches all mathematical engines and assets. Once installed or visited, the entire suite functions without an internet connection.
+
+---
+
 ## 🚀 Supported Deployment Targets
 
 | Target | Technology | Packaging Output | Primary Command |
