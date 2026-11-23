@@ -174,12 +174,13 @@ jobs:
         run: npm run build
 
       - name: Sync Capacitor Android
-        run: npx @capacitor/cli sync android
+        run: npx --no-install @capacitor/cli sync android
 
       - name: Build Android Debug APK
         working-directory: android
         run: |
           chmod +x gradlew
+          ./gradlew --version
           ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Verify Android APK Output
@@ -226,7 +227,7 @@ jobs:
         run: npm run build
 
       - name: Sync Capacitor iOS
-        run: npx @capacitor/cli sync ios
+        run: npx --no-install @capacitor/cli sync ios
 
       - name: Build Unsigned iOS Archive (Capacitor 8 SPM)
         working-directory: ios/App

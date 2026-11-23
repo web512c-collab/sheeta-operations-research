@@ -2,39 +2,52 @@
 
 #
 # Gradle wrapper script for Sheeta Operations Research Android Target
+# Always executes the project-pinned Gradle Wrapper JAR so system-wide Gradle
+# installations (e.g., Gradle 9.x on CI runners) never override gradle-wrapper.properties.
 #
 
-# Attempt to set APP_HOME
-APP_HOME=$(cd "$(dirname "$0")" && pwd -P)
-DEFAULT_JVM_OPTS="-Xmx64m -Xms64m"
+# Resolve APP_HOME (following symlinks if needed)
+PRG="$0"
+while [ -h "$PRG" ] ; do
+    ls=$(ls -ld "$PRG")
+    link=$(expr "$ls" : '.*-> \(.*\)$')
+    if expr "$link" : '/.*' >/dev/null; then
+        PRG="$link"
+    else
+        PRG="$(dirname "$PRG")/$link"
+    fi
+done
 
-# Find java
+APP_HOME=$(cd "$(dirname "$PRG")" && pwd -P) || exit 1
+APP_BASE_NAME=${0##*/}
+DEFAULT_JVM_OPTS="-Xmx64m -Xms64m"
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+
+# Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then
     if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
         JAVACMD="$JAVA_HOME/jre/sh/java"
     else
         JAVACMD="$JAVA_HOME/bin/java"
     fi
+    if [ ! -x "$JAVACMD" ] ; then
+        echo "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME" >&2
+        exit 1
+    fi
 else
     JAVACMD="java"
+    if ! command -v "$JAVACMD" >/dev/null 2>&1 ; then
+        echo "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH." >&2
+        exit 1
+    fi
 fi
 
-if ! command -v "$JAVACMD" >/dev/null 2>&1 ; then
-    echo "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH." >&2
+if [ ! -f "$WRAPPER_JAR" ] ; then
+    echo "ERROR: Gradle wrapper JAR not found at $WRAPPER_JAR" >&2
     exit 1
 fi
 
-# Locate gradle if installed locally, or run gradle command
-if command -v gradle >/dev/null 2>&1 ; then
-    exec gradle "$@"
-elif [ -f "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" ] ; then
-    exec "$JAVACMD" $DEFAULT_JVM_OPTS -jar "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" "$@"
-else
-    echo "Building Sheeta Operations Research Android target..."
-    if command -v gradle >/dev/null 2>&1 ; then
-        exec gradle "$@"
-    else
-        echo "Gradle completed."
-        exit 0
-    fi
-fi
+exec "$JAVACMD" $DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS \
+    "-Dorg.gradle.appname=$APP_BASE_NAME" \
+    -jar "$WRAPPER_JAR" \
+    "$@"
