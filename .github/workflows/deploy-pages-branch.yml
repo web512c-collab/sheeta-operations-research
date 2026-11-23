@@ -25,7 +25,10 @@ jobs:
           node-version: 22
 
       - name: Install Dependencies
-        run: npm install
+        shell: bash
+        run: |
+          rm -f package-lock.json
+          npm install --no-package-lock
 
       - name: Build Web PWA for GitHub Pages
         env:

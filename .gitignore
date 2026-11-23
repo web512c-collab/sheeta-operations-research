@@ -15,4 +15,5 @@ src-tauri/gen/schemas/
 *.log
 .env*
 !.env.example
-# Note: package-lock.json is intentionally NOT ignored so users can commit a lockfile if desired.
+# Ignore single-OS npm lockfiles so cross-platform CI installs native optional bindings cleanly (npm/cli#4828).
+package-lock.json

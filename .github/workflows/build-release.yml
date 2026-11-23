@@ -31,7 +31,10 @@ jobs:
           node-version: 22
 
       - name: Install Dependencies
-        run: npm install
+        shell: bash
+        run: |
+          rm -f package-lock.json
+          npm install --no-package-lock
 
       - name: Typecheck & Lint
         run: npm run lint
@@ -115,7 +118,10 @@ jobs:
             pkg-config
 
       - name: Install Node Dependencies
-        run: npm install
+        shell: bash
+        run: |
+          rm -f package-lock.json
+          npm install --no-package-lock
 
       - name: Build Tauri Desktop Bundle
         uses: tauri-apps/tauri-action@v0
@@ -155,9 +161,14 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
       - name: Install Dependencies
-        run: npm install
+        shell: bash
+        run: |
+          rm -f package-lock.json
+          npm install --no-package-lock
 
       - name: Build Frontend Distribution
         run: npm run build
@@ -206,7 +217,10 @@ jobs:
           node-version: 22
 
       - name: Install Dependencies
-        run: npm install
+        shell: bash
+        run: |
+          rm -f package-lock.json
+          npm install --no-package-lock
 
       - name: Build Frontend Distribution
         run: npm run build
