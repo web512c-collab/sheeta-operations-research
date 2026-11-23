@@ -1,7 +1,7 @@
 # Sheeta Operations Research
 
 > **Industrial-Grade Operations Research & Simulation Suite**  
-> Complete cross-platform architecture running 100% offline from **ONE shared codebase** across 6 targets: Web/PWA, Windows, macOS, Linux, Android, and iOS.
+> Complete cross-platform architecture running 100% offline from **ONE shared codebase** across 4 targets: Web/PWA, Windows, Linux, and Android.
 
 ---
 
@@ -17,8 +17,8 @@ Install Sheeta Operations Research to run full-screen, standalone, and completel
 
 - **Android (Chrome, Edge, Samsung Internet):**
   - Tap the **"Install App"** button in the top navigation bar, or open the browser menu (`⋮`) and select **"Add to Home screen"** / **"Install application"**.
-- **iOS / iPadOS (Safari):**
-  - Tap the **Share** button (square with an arrow pointing up), scroll down, and select **"Add to Home Screen"** (`+`).
+- **Safari (iPhone, iPad, Mac):**
+  - The web version works in any modern browser, including Safari on iPhone and Mac, as a PWA. Tap **Share** and select **"Add to Home Screen"** (or **File → Add to Dock** on Mac) to install.
 - **Desktop (Chrome, Edge, Brave, Opera):**
   - Click the **Install** icon in your browser's URL address bar (or click the **"Install App"** button in the top bar).
 - **100% Offline Capability:**
@@ -32,10 +32,8 @@ Install Sheeta Operations Research to run full-screen, standalone, and completel
 | :--- | :--- | :--- | :--- |
 | **Web & PWA** | Vite + React 19 + PWA | Installable SPA / Static Dist | `npm run build:pwa` |
 | **Windows** | Tauri 2 (or Electron) | `.exe` / `.msi` (x64, ARM64) | `npm run tauri:build` |
-| **macOS** | Tauri 2 (or Electron) | `.dmg` / `.app` (Universal, M-series, Intel) | `npm run tauri:build` |
 | **Linux** | Tauri 2 (or Electron) | `.AppImage` / `.deb` (x64, ARM64) | `npm run tauri:build` |
 | **Android** | Capacitor 8 | `.apk` / `.aab` | `npm run android:build` |
-| **iOS** | Capacitor 8 + Xcode | `.ipa` / Xcode Project | `npm run ios:build` |
 
 ---
 
@@ -48,10 +46,10 @@ All device interactions pass through the typed `PlatformAdapter` interface:
 1. **Storage & Native Mirroring (`storage`)**:
    - Primary: Fast IndexedDB.
    - Secondary: `localStorage` fallback.
-   - **Mobile WKWebView Eviction Safeguard**: On iOS and Android, WebView databases can be evicted by the operating system under low-disk pressure. The platform adapter mirrors workspace problems, settings, and language to native persistent storage (`Capacitor Preferences`) with an automatic startup restore routine.
+   - **Android WebView Eviction Safeguard**: On Android, WebView databases can be evicted by the operating system under low-disk pressure. The platform adapter mirrors workspace problems, settings, and language to native persistent storage (`Capacitor Preferences`) with an automatic startup restore routine.
 2. **File Export & Import (`file`)**:
    - **Web / PWA**: Native `Blob` URL downloads and synthetic `<input type="file">`.
-   - **Capacitor (Android & iOS)**: Native filesystem cache with system share sheet integration (`Filesystem` + `Share`).
+   - **Capacitor (Android)**: Native filesystem cache with system share sheet integration (`Filesystem` + `Share`).
    - **Tauri 2**: OS-native file save and open dialogs (`@tauri-apps/plugin-dialog` and `@tauri-apps/plugin-fs`).
    - **Electron**: IPC bridge to `dialog.showSaveDialog` and `dialog.showOpenDialog`.
 3. **Clipboard (`clipboard`)**:
@@ -95,27 +93,17 @@ npm run android:open
 cd android && ./gradlew assembleDebug
 ```
 
-### 3. iOS (.ipa)
-**Prerequisites:** macOS, Xcode 16+ (Swift Package Manager).
-```bash
-# Build web assets and sync to iOS Xcode workspace
-npm run ios:build
-
-# Open project in Xcode
-npm run ios:open
-```
-
-### 4. Desktop: Windows, macOS, Linux (Tauri 2)
+### 3. Desktop: Windows & Linux (Tauri 2)
 **Prerequisites:** Rust toolchain (`rustup`), platform build tools (`visualstudio2022-workload-vctools` on Windows, `build-essential` & `libwebkit2gtk-4.1-dev` on Linux).
 ```bash
 # Run Tauri in dev mode with hot reload
 npm run tauri:dev
 
-# Build native desktop installers (.exe, .dmg, .AppImage, .deb)
+# Build native desktop installers (.exe, .msi, .AppImage, .deb)
 npm run tauri:build
 ```
 
-### 5. Desktop: Alternative Electron Target
+### 4. Desktop: Alternative Electron Target
 For teams that prefer Electron:
 ```bash
 # Run Electron dev window

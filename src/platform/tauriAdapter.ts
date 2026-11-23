@@ -1,5 +1,5 @@
 /**
- * Sheeta Operations Research - Tauri 2 Platform Adapter (Desktop: Windows, macOS, Linux)
+ * Sheeta Operations Research - Tauri 2 Platform Adapter (Desktop: Windows, Linux)
  * Bridges native desktop dialogs, local filesystem, system notifications, and window controls.
  */
 

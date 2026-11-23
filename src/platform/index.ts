@@ -5,9 +5,8 @@
  * Supported runtimes:
  * 1. Web & PWA
  * 2. Android (Capacitor)
- * 3. iOS (Capacitor)
- * 4. Desktop (Tauri 2: Windows, macOS, Linux)
- * 5. Desktop (Electron: Windows, macOS, Linux)
+ * 3. Desktop (Tauri 2: Windows, Linux)
+ * 4. Desktop (Electron: Windows, Linux)
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
@@ -43,7 +42,7 @@ export function detectPlatform(): PlatformAdapter {
     return activePlatform;
   }
 
-  // 3. Capacitor Native Mobile Detection (Android & iOS)
+  // 3. Capacitor Native Mobile Detection (Android)
   if (Capacitor.isNativePlatform()) {
     activePlatform = new CapacitorPlatformAdapter();
     return activePlatform;

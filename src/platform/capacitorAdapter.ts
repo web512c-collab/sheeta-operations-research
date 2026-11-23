@@ -1,7 +1,7 @@
 /**
- * Sheeta Operations Research - Capacitor Platform Adapter (Android & iOS)
- * Implements mobile-specific bridges, native storage mirroring (to protect
- * against iOS WKWebView storage evictions), hardware back button handling,
+ * Sheeta Operations Research - Capacitor Platform Adapter (Android)
+ * Implements Android bridges, native storage mirroring (to protect against
+ * Android WebView storage evictions), hardware back button handling,
  * native share sheet, and haptic feedback.
  */
 
@@ -119,16 +119,11 @@ const capacitorFileAdapter: FileAdapter = {
 };
 
 export class CapacitorPlatformAdapter implements PlatformAdapter {
-  readonly type: PlatformType;
+  readonly type: PlatformType = 'capacitor-android';
   readonly isNative = true;
   readonly isMobile = true;
   readonly isDesktop = false;
   readonly isPWA = false;
-
-  constructor() {
-    const platform = Capacitor.getPlatform();
-    this.type = platform === 'ios' ? 'capacitor-ios' : 'capacitor-android';
-  }
 
   readonly storage: StorageAdapter = {
     async getItem(key: string): Promise<string | null> {

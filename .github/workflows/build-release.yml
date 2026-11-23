@@ -60,7 +60,7 @@ jobs:
           if-no-files-found: error
 
   # =========================================================================
-  # 2. Desktop Matrix Build (Windows, macOS ARM64 & Intel, Linux via Tauri 2)
+  # 2. Desktop Matrix Build (Windows & Linux via Tauri 2)
   # =========================================================================
   build-desktop-tauri:
     name: Desktop Tauri (${{ matrix.label }})
@@ -69,21 +69,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: 'macOS Apple Silicon'
-            platform: 'macos-latest'
-            target: 'aarch64-apple-darwin'
-            artifact_name: 'sheeta-or-desktop-macos-arm64'
-          - label: 'macOS Intel (Cross-Compile)'
-            platform: 'macos-latest'
-            target: 'x86_64-apple-darwin'
-            artifact_name: 'sheeta-or-desktop-macos-x64'
           - label: 'Linux x86_64'
             platform: 'ubuntu-22.04'
             target: 'x86_64-unknown-linux-gnu'
+            bundles: 'deb,appimage'
             artifact_name: 'sheeta-or-desktop-linux-x64'
           - label: 'Windows x86_64'
             platform: 'windows-latest'
             target: 'x86_64-pc-windows-msvc'
+            bundles: 'nsis,msi'
             artifact_name: 'sheeta-or-desktop-windows-x64'
 
     runs-on: ${{ matrix.platform }}
@@ -128,7 +122,7 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
         with:
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
 
       - name: Upload Desktop Installer Artifact
         uses: actions/upload-artifact@v4
@@ -197,66 +191,4 @@ jobs:
         with:
           name: sheeta-or-android-debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-
-  # =========================================================================
-  # 4. Optional Mobile Build (iOS via Xcode & Capacitor 8 SPM)
-  # Runs on manual dispatch or when repository variable ENABLE_IOS_BUILD == 'true'.
-  # =========================================================================
-  build-ios:
-    name: Mobile iOS (Xcode Archive)
-    needs: test
-    runs-on: macos-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || vars.ENABLE_IOS_BUILD == 'true' }}
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Install Dependencies
-        shell: bash
-        run: |
-          rm -f package-lock.json
-          npm install --no-package-lock
-
-      - name: Build Frontend Distribution
-        run: npm run build
-
-      - name: Sync Capacitor iOS
-        run: npx --no-install @capacitor/cli sync ios
-
-      - name: Build Unsigned iOS Archive (Capacitor 8 SPM)
-        working-directory: ios/App
-        run: |
-          if [ -d App.xcworkspace ]; then
-            xcodebuild -workspace App.xcworkspace \
-              -scheme App \
-              -configuration Release \
-              -destination 'generic/platform=iOS' \
-              -archivePath App.xcarchive \
-              archive \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGNING_ALLOWED=NO
-          else
-            xcodebuild -project App.xcodeproj \
-              -scheme App \
-              -configuration Release \
-              -destination 'generic/platform=iOS' \
-              -archivePath App.xcarchive \
-              archive \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGNING_ALLOWED=NO
-          fi
-
-      - name: Upload iOS Archive
-        uses: actions/upload-artifact@v4
-        with:
-          name: sheeta-or-ios-archive
-          path: ios/App/App.xcarchive
           if-no-files-found: error

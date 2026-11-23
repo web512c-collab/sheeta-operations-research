@@ -1,8 +1,8 @@
 /**
  * Sheeta Operations Research
  * Standalone Zero-Dependency Icon Generator
- * Generates spec-compliant PNG, binary Windows ICO, and binary Apple ICNS icons
- * for PWA, iOS, Android, and Tauri/Electron Desktop builds.
+ * Generates spec-compliant PNG and binary Windows ICO icons
+ * for Web/PWA (including Safari Add to Home Screen), Android, and Windows/Linux desktop builds.
  */
 
 import fs from 'fs';
@@ -184,36 +184,6 @@ export function generateIcoIcon(sizes = [16, 32, 48, 64, 256]) {
   return Buffer.concat([header, ...entries, ...payloads]);
 }
 
-/**
- * Generates a valid binary Apple ICNS container using PNG-compressed icon blocks.
- */
-export function generateIcnsIcon() {
-  const entries = [
-    { osType: 'icp4', size: 16 },
-    { osType: 'icp5', size: 32 },
-    { osType: 'icp6', size: 64 },
-    { osType: 'ic07', size: 128 },
-    { osType: 'ic08', size: 256 },
-    { osType: 'ic09', size: 512 },
-  ];
-
-  const blocks = entries.map(({ osType, size }) => {
-    const png = generatePngIcon(size, false);
-    const block = Buffer.alloc(8 + png.length);
-    block.write(osType, 0, 4, 'ascii');
-    block.writeUInt32BE(8 + png.length, 4);
-    png.copy(block, 8);
-    return block;
-  });
-
-  const totalLength = 8 + blocks.reduce((sum, buf) => sum + buf.length, 0);
-  const header = Buffer.alloc(8);
-  header.write('icns', 0, 4, 'ascii');
-  header.writeUInt32BE(totalLength, 4);
-
-  return Buffer.concat([header, ...blocks]);
-}
-
 // Write PWA icons to public/
 const publicDir = path.resolve(process.cwd(), 'public');
 if (!fs.existsSync(publicDir)) {
@@ -221,7 +191,6 @@ if (!fs.existsSync(publicDir)) {
 }
 
 const icoBuffer = generateIcoIcon([16, 32, 48, 64, 256]);
-const icnsBuffer = generateIcnsIcon();
 
 fs.writeFileSync(path.join(publicDir, 'pwa-192x192.png'), generatePngIcon(192, false));
 fs.writeFileSync(path.join(publicDir, 'pwa-512x512.png'), generatePngIcon(512, false));
@@ -229,7 +198,7 @@ fs.writeFileSync(path.join(publicDir, 'pwa-maskable-512x512.png'), generatePngIc
 fs.writeFileSync(path.join(publicDir, 'apple-touch-icon.png'), generatePngIcon(180, false));
 fs.writeFileSync(path.join(publicDir, 'favicon.ico'), icoBuffer);
 
-// Write Tauri 2 desktop icons to src-tauri/icons/
+// Write Tauri 2 desktop icons to src-tauri/icons/ (Windows & Linux)
 const tauriIconsDir = path.resolve(process.cwd(), 'src-tauri', 'icons');
 if (!fs.existsSync(tauriIconsDir)) {
   fs.mkdirSync(tauriIconsDir, { recursive: true });
@@ -240,6 +209,5 @@ fs.writeFileSync(path.join(tauriIconsDir, '128x128.png'), generatePngIcon(128, f
 fs.writeFileSync(path.join(tauriIconsDir, '128x128@2x.png'), generatePngIcon(256, false));
 fs.writeFileSync(path.join(tauriIconsDir, 'icon.png'), generatePngIcon(512, false));
 fs.writeFileSync(path.join(tauriIconsDir, 'icon.ico'), icoBuffer);
-fs.writeFileSync(path.join(tauriIconsDir, 'icon.icns'), icnsBuffer);
 
-console.log('Successfully generated PWA, ICO, and Tauri 2 desktop icons.');
+console.log('Successfully generated PWA, ICO, and Windows/Linux Tauri 2 desktop icons.');

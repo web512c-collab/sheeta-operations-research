@@ -5,14 +5,12 @@
  * Supports:
  * - Web (Static SPA + PWA)
  * - Android (Capacitor)
- * - iOS (Capacitor)
- * - Windows / macOS / Linux (Tauri 2 & Electron)
+ * - Windows / Linux (Tauri 2 & Electron)
  */
 
 export type PlatformType =
   | 'web'
   | 'capacitor-android'
-  | 'capacitor-ios'
   | 'tauri'
   | 'electron';
 
@@ -41,7 +39,7 @@ export interface StorageAdapter {
   clear(): Promise<void>;
   /**
    * Persists critical data (problems, settings, language) to native storage
-   * (Capacitor Preferences / SQLite) to prevent OS eviction in iOS WKWebView.
+   * (Capacitor Preferences / SQLite) to prevent OS eviction in Android WebView.
    */
   syncNativeMirror(data: Record<string, string>): Promise<void>;
   /**

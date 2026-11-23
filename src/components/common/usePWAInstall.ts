@@ -1,7 +1,7 @@
 /**
  * Sheeta Operations Research - PWA Installation Hook
  * Handles standard BeforeInstallPromptEvent on Chrome/Android/Desktop Edge,
- * and provides custom iOS Add-to-Home-Screen instructions.
+ * and provides Add-to-Home-Screen instructions for Safari on iPhone/iPad browsers.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -19,7 +19,7 @@ export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstallable, setIsInstallable] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
+  const [isSafariMobile, setIsSafariMobile] = useState(false);
 
   useEffect(() => {
     // Check if already in standalone display mode
@@ -32,10 +32,10 @@ export function usePWAInstall() {
       return;
     }
 
-    // Check if device is iOS (Safari doesn't support BeforeInstallPromptEvent)
+    // Detect mobile Safari browsers that do not emit BeforeInstallPromptEvent
     const ua = window.navigator.userAgent.toLowerCase();
-    const isAppleMobile = /iphone|ipad|ipod/.test(ua) && !(window as any).MSStream;
-    setIsIOS(isAppleMobile);
+    const isMobileSafariBrowser = /iphone|ipad|ipod/.test(ua) && !(window as any).MSStream;
+    setIsSafariMobile(isMobileSafariBrowser);
 
     const handleBeforeInstall = (e: Event) => {
       e.preventDefault();
@@ -80,7 +80,7 @@ export function usePWAInstall() {
   return {
     isInstallable: isInstallable && !isInstalled,
     isInstalled,
-    isIOS: isIOS && !isInstalled,
+    isSafariMobile: isSafariMobile && !isInstalled,
     installPWA,
   };
 }

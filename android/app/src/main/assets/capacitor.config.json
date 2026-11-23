@@ -5,18 +5,12 @@
 	"bundledWebRuntime": false,
 	"server": {
 		"androidScheme": "https",
-		"iosScheme": "ionic",
 		"cleartext": false
 	},
 	"android": {
 		"allowMixedContent": false,
 		"captureInput": true,
 		"webContentsDebuggingEnabled": false
-	},
-	"ios": {
-		"scrollEnabled": true,
-		"limitsNavigationsToAppBoundDomains": false,
-		"preferredContentMode": "mobile"
 	},
 	"plugins": {
 		"SplashScreen": {

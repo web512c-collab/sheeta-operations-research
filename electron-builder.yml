@@ -29,22 +29,6 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Sheeta Operations Research
 
-mac:
-  target:
-    - target: dmg
-      arch:
-        - x64
-        - arm64
-    - target: zip
-      arch:
-        - x64
-        - arm64
-  category: public.app-category.education
-  hardenedRuntime: true
-  gatekeeperAssess: false
-  entitlements: electron/entitlements.mac.plist
-  entitlementsInherit: electron/entitlements.mac.plist
-
 linux:
   target:
     - target: AppImage

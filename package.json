@@ -20,8 +20,6 @@
     "cap:sync": "npx @capacitor/cli sync",
     "android:build": "npm run build && npx @capacitor/cli sync android",
     "android:open": "npx @capacitor/cli open android",
-    "ios:build": "npm run build && npx @capacitor/cli sync ios",
-    "ios:open": "npx @capacitor/cli open ios",
     "tauri:dev": "cargo tauri dev",
     "tauri:build": "npm run build && cargo tauri build",
     "electron:compile": "tsc -p electron/tsconfig.json",
@@ -31,7 +29,6 @@
   "dependencies": {
     "@capacitor/android": "^8.6.2",
     "@capacitor/core": "^8.6.2",
-    "@capacitor/ios": "^8.6.2",
     "@tailwindcss/vite": "^4.3.5",
     "@vitejs/plugin-react": "^6.3.0",
     "lucide-react": "^0.546.0",

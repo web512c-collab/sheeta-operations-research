@@ -1,6 +1,6 @@
 /**
  * Sheeta Operations Research - PWA Installation Component
- * Renders an install button for eligible browsers and an iOS "Add to Home Screen" modal/tip.
+ * Renders an install button for eligible browsers and a Safari "Add to Home Screen" modal/tip.
  */
 
 import React, { useState } from 'react';
@@ -9,10 +9,10 @@ import { usePWAInstall } from './usePWAInstall';
 import { useI18n } from '../../i18n/i18nContext';
 
 export const PWAInstallButton: React.FC = () => {
-  const { isInstallable, isInstalled, isIOS, installPWA } = usePWAInstall();
+  const { isInstallable, isInstalled, isSafariMobile, installPWA } = usePWAInstall();
   const { language } = useI18n();
   const isRtl = language === 'ar';
-  const [showIosTip, setShowIosTip] = useState(false);
+  const [showSafariTip, setShowSafariTip] = useState(false);
 
   if (isInstalled) {
     return null;
@@ -32,28 +32,28 @@ export const PWAInstallButton: React.FC = () => {
     );
   }
 
-  if (isIOS) {
+  if (isSafariMobile) {
     return (
       <div className="relative">
         <button
-          onClick={() => setShowIosTip(!showIosTip)}
+          onClick={() => setShowSafariTip(!showSafariTip)}
           title={isRtl ? 'إضافة إلى الشاشة الرئيسية' : 'Add to Home Screen'}
-          aria-label="Install on iOS"
+          aria-label="Install PWA in Safari"
           className="p-1.5 text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 rounded-lg transition-colors flex items-center"
         >
           <Download className="w-3.5 h-3.5" />
         </button>
 
-        {showIosTip && (
+        {showSafariTip && (
           <div
             className={`absolute top-full mt-2 w-64 p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 text-xs text-slate-800 dark:text-slate-200 ${
               isRtl ? 'left-0' : 'right-0'
             }`}
           >
             <div className="flex items-center justify-between font-bold mb-1.5">
-              <span>{isRtl ? 'تثبيت على الآيفون والآيباد' : 'Install on iOS'}</span>
+              <span>{isRtl ? 'تثبيت تطبيق الويب عبر Safari' : 'Install PWA in Safari'}</span>
               <button
-                onClick={() => setShowIosTip(false)}
+                onClick={() => setShowSafariTip(false)}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
                 <X className="w-3.5 h-3.5" />

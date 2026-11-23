@@ -5,7 +5,6 @@ export interface CapacitorConfig {
   bundledWebRuntime?: boolean;
   server?: {
     androidScheme?: string;
-    iosScheme?: string;
     cleartext?: boolean;
     url?: string;
   };
@@ -13,11 +12,6 @@ export interface CapacitorConfig {
     allowMixedContent?: boolean;
     captureInput?: boolean;
     webContentsDebuggingEnabled?: boolean;
-  };
-  ios?: {
-    scrollEnabled?: boolean;
-    limitsNavigationsToAppBoundDomains?: boolean;
-    preferredContentMode?: string;
   };
   plugins?: Record<string, any>;
 }
@@ -29,18 +23,12 @@ const config: CapacitorConfig = {
   bundledWebRuntime: false,
   server: {
     androidScheme: 'https',
-    iosScheme: 'ionic',
     cleartext: false,
   },
   android: {
     allowMixedContent: false,
     captureInput: true,
     webContentsDebuggingEnabled: false,
-  },
-  ios: {
-    scrollEnabled: true,
-    limitsNavigationsToAppBoundDomains: false,
-    preferredContentMode: 'mobile',
   },
   plugins: {
     SplashScreen: {
