@@ -27,6 +27,19 @@ export type RunStatus =
 export type ObjectiveSense = 'maximize' | 'minimize';
 export type ConstraintOp = '<=' | '>=' | '=';
 export type VariableType = 'continuous' | 'integer' | 'binary';
+export type BranchingStrategy = 'most_fractional' | 'first_fractional';
+
+export interface SolverSettings {
+  presolveEnabled: boolean;
+  sparseEnabled: boolean;
+  webWorkerEnabled: boolean;
+  branchingStrategy: BranchingStrategy;
+  maxNodes: number;
+  maxDepth: number;
+  timeoutSeconds: number;
+  eps: number;
+  pivotEps: number;
+}
 
 export interface VariableDef {
   id: string;
@@ -58,7 +71,19 @@ export type SimplexStatus =
   | 'optimal'
   | 'infeasible'
   | 'unbounded'
-  | 'iteration_limit';
+  | 'iteration_limit'
+  | 'cancelled';
+
+export interface ConstraintSensitivity {
+  id: string;
+  name: string;
+  op: ConstraintOp;
+  rhs: number;
+  lhs: number;
+  slackOrSurplus: number;
+  kind: 'slack' | 'surplus' | 'equality';
+  dualValue: number;
+}
 
 export interface SimplexSolution {
   status: SimplexStatus;
@@ -66,6 +91,9 @@ export interface SimplexSolution {
   variableValues: number[]; // values of original variables
   slackValues: number[];
   dualValues?: number[];
+  constraintDetails?: ConstraintSensitivity[];
+  boundDuals?: { varIndex: number; kind: 'lb' | 'ub'; dualValue: number }[];
+  matrixModeUsed?: 'dense' | 'sparse';
   iterations: number;
   executionTimeMs: number;
   errorMessage?: string;
@@ -83,11 +111,21 @@ export interface PresolveStats {
   executionTimeMs: number;
 }
 
+export interface SingletonBoundSource {
+  varIndex: number;
+  bound: 'lb' | 'ub' | 'fixed';
+  origConstraintIndex: number;
+  coeff: number;
+  effectiveBound: number;
+}
+
 export interface PresolveResult {
   problem: LpProblem;
   stats: PresolveStats;
   originalVarsCount: number;
   activeVarIndices: number[];
+  activeConstraintIndices: number[];
+  singletonBoundSources?: SingletonBoundSource[];
   fixedVarEntries: [number, number][]; // [varIndex, fixedValue][]
   fixedVarValues?: Map<number, number>; // varIndex -> fixed value
   reconstructSolution?: (reducedVarValues: number[]) => number[];
@@ -96,7 +134,34 @@ export interface PresolveResult {
   report: string[];
 }
 
-export type BranchingStrategy = 'most_fractional' | 'first_fractional';
+export type BranchAndBoundStatus =
+  | 'optimal'
+  | 'feasible_not_proven'
+  | 'depth_limit_reached'
+  | 'node_limit_reached'
+  | 'time_limit_reached'
+  | 'cancelled'
+  | 'infeasible'
+  | 'unbounded';
+
+export type BranchAndBoundWarningCode =
+  | 'cancelled'
+  | 'time_limit_reached'
+  | 'node_limit_reached'
+  | 'depth_limit_reached'
+  | 'feasible_not_proven'
+  | 'infeasible'
+  | 'unbounded';
+
+export interface SolverLimitsUsed {
+  maxNodes: number;
+  maxDepth: number;
+  timeoutMs: number;
+  branchingStrategy: BranchingStrategy;
+  sparseEnabled: boolean;
+  eps: number;
+  pivotEps: number;
+}
 
 export interface BranchAndBoundStats {
   exploredNodes: number;
@@ -107,15 +172,30 @@ export interface BranchAndBoundStats {
   executionTimeMs: number;
   integralityGapPercent: number;
   accelerationsApplied: number;
+  depthLimitHitCount?: number;
+  openNodesRemaining?: number;
+}
+
+export interface BranchAndBoundProgress {
+  exploredNodes: number;
+  maxNodes: number;
+  bestObjectiveValue?: number;
+  bestIntegerSolution?: number[];
+  bestBound?: number;
+  openNodesRemaining: number;
 }
 
 export interface BranchAndBoundResult {
-  status: 'optimal' | 'feasible_timeout' | 'infeasible' | 'cancelled' | 'unbounded';
+  status: BranchAndBoundStatus;
   bestIntegerSolution?: number[];
   bestObjectiveValue?: number;
+  bestBound?: number;
   lpRelaxation: SimplexSolution;
   stats: BranchAndBoundStats;
+  limitsUsed?: SolverLimitsUsed;
+  matrixModeUsed?: 'dense' | 'sparse';
   warning?: string;
+  warningCode?: BranchAndBoundWarningCode;
   nodeHistory?: {
     nodeId: number;
     depth: number;
@@ -166,6 +246,16 @@ export interface AssignmentResult {
 // PERT / CPM Types
 // ==========================================
 
+export type PertValidationErrorCode =
+  | 'EMPTY_NETWORK'
+  | 'EMPTY_ID'
+  | 'DUPLICATE_ID'
+  | 'SELF_DEPENDENCY'
+  | 'UNKNOWN_PREDECESSOR'
+  | 'INVALID_DURATION'
+  | 'INVALID_THREE_POINT'
+  | 'CYCLE_DETECTED';
+
 export interface ActivityDef {
   id: string;
   name: string;
@@ -192,7 +282,10 @@ export interface ActivityResult extends ActivityDef {
 
 export interface PertCpmResult {
   activities: ActivityResult[];
-  criticalPath: string[]; // Activity IDs
+  criticalPath: string[]; // Primary Critical Path Activity IDs
+  criticalPaths: string[][]; // All distinct Critical Paths (capped at maxCriticalPaths)
+  pathsCapped?: boolean;
+  maxCriticalPaths?: number;
   totalDuration: number;
   projectVariance: number;
   projectStdDev: number;
@@ -307,6 +400,9 @@ export interface SimulationSummary {
   stdDevValue: number;
   distributionBins: { binStart: number; binEnd: number; count: number }[];
   scenarios: ScenarioRun[];
+  cancelled?: boolean;
+  workerPoolSize?: number;
+  limitsUsed?: Partial<SolverSettings>;
 }
 
 // ==========================================
@@ -324,16 +420,7 @@ export interface SavedProblem {
   lastResults?: any;
 }
 
-export interface AppSettings {
-  presolveEnabled: boolean;
-  sparseEnabled: boolean;
-  webWorkerEnabled: boolean;
-  branchingStrategy: BranchingStrategy;
-  maxNodes: number;
-  maxDepth: number;
-  timeoutSeconds: number;
-  eps: number;
-  pivotEps: number;
+export interface AppSettings extends SolverSettings {
   autoCopyReport: boolean;
   theme: 'light' | 'dark';
 }

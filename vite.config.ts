@@ -22,7 +22,7 @@ export default defineConfig(() => {
           name: 'Sheeta Operations Research',
           short_name: 'Sheeta OR',
           description:
-            'Industrial Operations Research & Mathematical Programming Suite for Web, Desktop, and Mobile.',
+            'Quantitative Operations Research & Mathematical Programming Suite for Web, Desktop, and Mobile.',
           theme_color: '#4f46e5',
           background_color: '#0f172a',
           display: 'standalone',

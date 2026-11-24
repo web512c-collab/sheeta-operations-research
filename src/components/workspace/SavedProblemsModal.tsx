@@ -124,7 +124,7 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
     await deleteSavedProblem(problemToDelete.id);
     setProblemToDelete(null);
     platform.device.haptic('medium');
-    showToast('Problem deleted.');
+    showToast(t.workspace.deleteSuccess);
     refreshProblems();
   };
 
@@ -142,7 +142,7 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
         platform.device.haptic('success');
       }
     } catch {
-      showToast('Export failed.');
+      showToast(t.workspace.exportFailed);
     }
   };
 
@@ -154,7 +154,7 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
       });
       if (!res) return;
       const countRes = await importWorkspaceJson(res.content);
-      showToast(`Imported ${countRes.count} problems successfully.`);
+      showToast(`${t.workspace.importCountPrefix} ${countRes.count}`);
       platform.device.haptic('success');
       refreshProblems();
     } catch {
@@ -170,6 +170,21 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
     return matchesSearch && matchesMod;
   });
 
+  const getModuleBadgeLabel = (mod: ORModuleType): string => {
+    switch (mod) {
+      case 'lp':
+        return t.modules.lpShort;
+      case 'transportation':
+        return t.modules.transportationShort;
+      case 'pert':
+        return t.modules.pertShort;
+      case 'queuing_eoq':
+        return t.modules.queuingEoqShort;
+      default:
+        return t.modules.simulationShort;
+    }
+  };
+
   return (
     <>
       <Modal isOpen={isOpen} onClose={onClose} title={t.workspace.title} maxWidth="max-w-4xl">
@@ -184,11 +199,12 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
           {/* Save Active Problem Section */}
           <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Save Active Problem to Workspace
+              {t.workspace.saveSectionTitle}
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <input
                 type="text"
+                aria-label={t.workspace.problemName}
                 placeholder={t.workspace.problemName}
                 value={saveTitle}
                 onChange={(e) => setSaveTitle(e.target.value)}
@@ -196,6 +212,7 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
               />
               <input
                 type="text"
+                aria-label={t.workspace.problemDesc}
                 placeholder={t.workspace.problemDesc}
                 value={saveDesc}
                 onChange={(e) => setSaveDesc(e.target.value)}
@@ -248,7 +265,8 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search saved problems..."
+                  aria-label={t.workspace.searchPlaceholder}
+                  placeholder={t.workspace.searchPlaceholder}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="ps-8 pe-3 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg w-44"
@@ -256,15 +274,16 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
               </div>
 
               <select
+                aria-label={t.workspace.moduleCategory}
                 value={filterModule}
                 onChange={(e) => setFilterModule(e.target.value)}
                 className="px-2 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
               >
-                <option value="all">All Modules</option>
-                <option value="lp">Linear & IP</option>
-                <option value="transportation">Transportation</option>
-                <option value="pert">PERT / CPM</option>
-                <option value="queuing_eoq">Queue & EOQ</option>
+                <option value="all">{t.workspace.allModules}</option>
+                <option value="lp">{t.modules.lpShort}</option>
+                <option value="transportation">{t.modules.transportationShort}</option>
+                <option value="pert">{t.modules.pertShort}</option>
+                <option value="queuing_eoq">{t.modules.queuingEoqShort}</option>
               </select>
             </div>
           </div>
@@ -287,8 +306,8 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
                         <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
                           {prob.title}
                         </span>
-                        <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                          {prob.module}
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                          {getModuleBadgeLabel(prob.module)}
                         </span>
                       </div>
                       {prob.description && (
@@ -297,7 +316,7 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
                         </p>
                       )}
                       <span className="text-[10px] text-slate-400 block mt-1">
-                        Modified: {new Date(prob.updatedAt).toLocaleDateString()}
+                        {t.workspace.modifiedLabel} {new Date(prob.updatedAt).toLocaleDateString()}
                       </span>
                     </div>
 
@@ -318,6 +337,7 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
 
                       <button
                         onClick={() => setProblemToDelete(prob)}
+                        aria-label={`${t.workspace.deleteTitle} ${prob.title}`}
                         className="p-1.5 text-slate-400 hover:text-rose-600 rounded-md transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -336,7 +356,7 @@ export const SavedProblemsModal: React.FC<SavedProblemsModalProps> = ({
           isOpen={true}
           onClose={() => setProblemToDelete(null)}
           onConfirm={handleDelete}
-          title="Delete Saved Problem"
+          title={t.workspace.deleteTitle}
           message={t.workspace.deleteConfirm}
         />
       )}

@@ -1,12 +1,14 @@
 /**
  * Sheeta Operations Research - Cross-Platform Abstraction Layer
  * Core Type Definitions for Unified Multi-Target Support
- * 
+ *
  * Supports:
  * - Web (Static SPA + PWA)
  * - Android (Capacitor)
  * - Windows / Linux (Tauri 2 & Electron)
  */
+
+import type { ReportData } from '../engines/reportBuilder';
 
 export type PlatformType =
   | 'web'
@@ -37,14 +39,7 @@ export interface StorageAdapter {
   setItem(key: string, value: string): Promise<void>;
   removeItem(key: string): Promise<void>;
   clear(): Promise<void>;
-  /**
-   * Persists critical data (problems, settings, language) to native storage
-   * (Capacitor Preferences / SQLite) to prevent OS eviction in Android WebView.
-   */
   syncNativeMirror(data: Record<string, string>): Promise<void>;
-  /**
-   * Restores stored data from the native mirror if WebView storage was cleared.
-   */
   restoreFromNativeMirror(): Promise<Record<string, string> | null>;
 }
 
@@ -61,7 +56,12 @@ export interface ClipboardAdapter {
 
 export interface PDFAdapter {
   print(): Promise<void>;
-  exportPdf(title: string, htmlContent: string, isRtl?: boolean): Promise<{ success: boolean }>;
+  exportPdf(
+    title: string,
+    htmlContent: string,
+    isRtl?: boolean,
+    structuredReport?: ReportData
+  ): Promise<{ success: boolean }>;
 }
 
 export interface DeviceAdapter {

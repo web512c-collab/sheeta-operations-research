@@ -90,7 +90,7 @@ define(['./workbox-7e5eb42b'], (function (workbox) { 'use strict';
     "revision": "83cdbbde54ba8e9037a90799b784847e"
   }, {
     "url": "index.html",
-    "revision": "ce3d4bceb7f23785094f797f003ecea4"
+    "revision": "3522ded7d9739e0f86f18ad54503032a"
   }, {
     "url": "icon.svg",
     "revision": "3dc82091349d7435a71f8d7be907d6dc"
@@ -102,15 +102,96 @@ define(['./workbox-7e5eb42b'], (function (workbox) { 'use strict';
     "revision": "134ec76cef8073bc51da5bae74de6c1f"
   }, {
     "url": "404.html",
-    "revision": "ce3d4bceb7f23785094f797f003ecea4"
+    "revision": "3522ded7d9739e0f86f18ad54503032a"
   }, {
-    "url": "assets/solverWorker-1KR6eBo3.js",
+    "url": "assets/web-Ci3uNWs0.js",
     "revision": null
   }, {
-    "url": "assets/index-DRrZbCB1.js",
+    "url": "assets/web-CMn_7ehb.js",
     "revision": null
   }, {
-    "url": "assets/index-Cy9JHn0G.css",
+    "url": "assets/web-Bxfesq9m.js",
+    "revision": null
+  }, {
+    "url": "assets/solverWorker-C5Fp6JYb.js",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-700-normal-DqEcQeE5.woff",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-700-normal-CfpNZvy6.woff2",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-600-normal-DLTa1BUW.woff2",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-600-normal-BR_Ojra4.woff",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-500-normal-DYtqi0QS.woff",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-500-normal-Bf-nb4oT.woff2",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-400-normal-Dhut76fR.woff2",
+    "revision": null
+  }, {
+    "url": "assets/plus-jakarta-sans-latin-400-normal-BDKaGhyp.woff",
+    "revision": null
+  }, {
+    "url": "assets/jetbrains-mono-latin-700-normal-D3wTyLJW.woff",
+    "revision": null
+  }, {
+    "url": "assets/jetbrains-mono-latin-700-normal-BYuf6tUa.woff2",
+    "revision": null
+  }, {
+    "url": "assets/jetbrains-mono-latin-600-normal-C8RAYTDA.woff2",
+    "revision": null
+  }, {
+    "url": "assets/jetbrains-mono-latin-600-normal-BfsvjouI.woff",
+    "revision": null
+  }, {
+    "url": "assets/jetbrains-mono-latin-400-normal-V6pRDFza.woff2",
+    "revision": null
+  }, {
+    "url": "assets/jetbrains-mono-latin-400-normal-6-qcROiO.woff",
+    "revision": null
+  }, {
+    "url": "assets/index-aaJi0Lfl.js",
+    "revision": null
+  }, {
+    "url": "assets/index-Ct1v-mC2.css",
+    "revision": null
+  }, {
+    "url": "assets/cairo-latin-700-normal-C3GYtKbV.woff2",
+    "revision": null
+  }, {
+    "url": "assets/cairo-latin-700-normal-6fcUy4Rc.woff",
+    "revision": null
+  }, {
+    "url": "assets/cairo-latin-400-normal-b1R3q6Pf.woff",
+    "revision": null
+  }, {
+    "url": "assets/cairo-latin-400-normal-Dh7otpdh.woff2",
+    "revision": null
+  }, {
+    "url": "assets/cairo-arabic-700-normal-D3nDedWX.woff2",
+    "revision": null
+  }, {
+    "url": "assets/cairo-arabic-700-normal-CyOqhaeK.woff",
+    "revision": null
+  }, {
+    "url": "assets/cairo-arabic-600-normal-rkrvveqO.woff2",
+    "revision": null
+  }, {
+    "url": "assets/cairo-arabic-600-normal-B3EOalmC.woff",
+    "revision": null
+  }, {
+    "url": "assets/cairo-arabic-400-normal-DN15VWMM.woff2",
+    "revision": null
+  }, {
+    "url": "assets/cairo-arabic-400-normal-CAYwymWN.woff",
     "revision": null
   }, {
     "url": "apple-touch-icon.png",
@@ -132,7 +213,7 @@ define(['./workbox-7e5eb42b'], (function (workbox) { 'use strict';
     "revision": "20b7fbb4374d877ff1db9d0123e6cd8d"
   }, {
     "url": "manifest.webmanifest",
-    "revision": "442a2a3b6c60f8d16970d9d0dc309a60"
+    "revision": "42643f71f8c4a3bebc728c9b4c91ce78"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html")));

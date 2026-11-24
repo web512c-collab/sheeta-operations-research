@@ -6,15 +6,18 @@
 import React, { useState } from 'react';
 import {
   BranchAndBoundResult,
+  BranchingStrategy,
   ConstraintDef,
   ConstraintOp,
   LpProblem,
   PresolveResult,
   RunStatus,
   SimplexSolution,
+  SolverSettings,
   VariableDef,
   VariableType,
 } from '../../types';
+import { DEFAULT_SETTINGS } from '../../storage/db';
 import { useI18n } from '../../i18n/i18nContext';
 import { GraphicalView } from './GraphicalView';
 import { LpResultsView } from './LpResultsView';
@@ -25,7 +28,7 @@ import {
   requestSolveLp,
 } from '../../workers/workerClient';
 import {
-  INDUSTRIAL_BENCHMARK_LP,
+  BENCHMARK_LP,
   SAMPLE_TWO_VAR_LP,
 } from '../../storage/sampleProblems';
 import {
@@ -42,27 +45,38 @@ interface LpModuleProps {
   initialProblem?: LpProblem;
   syncVersion?: number;
   onUpdateActiveProblem?: (problem: LpProblem, results?: any) => void;
-  enablePresolve: boolean;
-  enableWorker: boolean;
-  branchingStrategy: 'most_fractional' | 'first_fractional';
+  settings?: SolverSettings;
+  enablePresolve?: boolean;
+  enableWorker?: boolean;
+  branchingStrategy?: BranchingStrategy;
 }
 
 export const LpModule: React.FC<LpModuleProps> = ({
   initialProblem,
   syncVersion,
   onUpdateActiveProblem,
+  settings,
   enablePresolve,
   enableWorker,
   branchingStrategy,
 }) => {
   const { t } = useI18n();
 
+  const effectiveSettings: SolverSettings = settings ?? {
+    ...DEFAULT_SETTINGS,
+    presolveEnabled: enablePresolve ?? DEFAULT_SETTINGS.presolveEnabled,
+    webWorkerEnabled: enableWorker ?? DEFAULT_SETTINGS.webWorkerEnabled,
+    branchingStrategy: branchingStrategy ?? DEFAULT_SETTINGS.branchingStrategy,
+  };
+
   const [problem, setProblem] = useState<LpProblem>(
     initialProblem || SAMPLE_TWO_VAR_LP
   );
   const [showGraphical, setShowGraphical] = useState(false);
   const [status, setStatus] = useState<RunStatus>('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [progressPercent, setProgressPercent] = useState<number | undefined>(undefined);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const [simplexSolution, setSimplexSolution] = useState<SimplexSolution | null>(null);
   const [bbResult, setBbResult] = useState<BranchAndBoundResult | null>(null);
@@ -86,27 +100,26 @@ export const LpModule: React.FC<LpModuleProps> = ({
     setBbResult(null);
     setPresolveResult(null);
     setStatus('idle');
+    setErrorMessage(null);
+    setProgressPercent(undefined);
   }, [initialProblem, syncVersion]);
 
-  // Handle Sense change
   const handleSenseChange = (sense: 'maximize' | 'minimize') => {
     const updated = { ...problem, sense };
     setProblem(updated);
     if (onUpdateActiveProblem) onUpdateActiveProblem(updated);
   };
 
-  // Handle IP toggle
   const handleIpToggle = (isIntegerProgram: boolean) => {
     const updated = { ...problem, isIntegerProgram };
     setProblem(updated);
     if (onUpdateActiveProblem) onUpdateActiveProblem(updated);
   };
 
-  // Variable management
   const addVariable = () => {
     const nextIdx = problem.variables.length + 1;
     const newVar: VariableDef = {
-      id: `x${nextIdx}`,
+      id: `x${nextIdx}_${Date.now().toString(36)}`,
       name: `x${nextIdx}`,
       type: 'continuous',
       objCoeff: 0,
@@ -114,8 +127,6 @@ export const LpModule: React.FC<LpModuleProps> = ({
       upperBound: Infinity,
     };
     const updatedVars = [...problem.variables, newVar];
-
-    // Add 0 coefficient for this new variable to all existing constraints
     const updatedConstraints = problem.constraints.map((c) => ({
       ...c,
       coeffs: [...c.coeffs, 0],
@@ -152,7 +163,6 @@ export const LpModule: React.FC<LpModuleProps> = ({
     const prev = updatedVars[idx];
     const updatedVar = { ...prev, ...patch };
 
-    // If type set to binary, auto-set LB=0, UB=1
     if (patch.type === 'binary') {
       updatedVar.lowerBound = 0;
       updatedVar.upperBound = 1;
@@ -164,12 +174,11 @@ export const LpModule: React.FC<LpModuleProps> = ({
     if (onUpdateActiveProblem) onUpdateActiveProblem(updated);
   };
 
-  // Constraint management
   const addConstraint = () => {
     const nextIdx = problem.constraints.length + 1;
     const newConstraint: ConstraintDef = {
-      id: `c${nextIdx}`,
-      name: `Constraint ${nextIdx}`,
+      id: `c${nextIdx}_${Date.now().toString(36)}`,
+      name: `${t.lp.defaultConstraintPrefix} ${nextIdx}`,
       coeffs: new Array(problem.variables.length).fill(0),
       op: '<=',
       rhs: 0,
@@ -209,60 +218,95 @@ export const LpModule: React.FC<LpModuleProps> = ({
     if (onUpdateActiveProblem) onUpdateActiveProblem(updated);
   };
 
-  // Solve Action
+  const getBbStatusBannerInfo = (bb: BranchAndBoundResult): { uiStatus: RunStatus; msg: string } => {
+    switch (bb.status) {
+      case 'optimal':
+        return { uiStatus: 'completed', msg: t.status.optimal };
+      case 'cancelled':
+        return { uiStatus: 'cancelled', msg: t.status.cancelled };
+      case 'depth_limit_reached':
+        return { uiStatus: 'warning', msg: t.status.depthLimitReached };
+      case 'node_limit_reached':
+        return { uiStatus: 'warning', msg: t.status.nodeLimitReached };
+      case 'time_limit_reached':
+        return { uiStatus: 'warning', msg: t.status.timeLimitReached };
+      case 'feasible_not_proven':
+        return { uiStatus: 'warning', msg: t.status.feasibleNotProven };
+      case 'unbounded':
+        return { uiStatus: 'error', msg: t.status.unbounded };
+      case 'infeasible':
+      default:
+        return { uiStatus: 'error', msg: t.status.infeasible };
+    }
+  };
+
   const handleSolve = async () => {
+    setIsCancelling(false);
+    setErrorMessage(null);
     setStatus('running');
-    setStatusMessage(t.status.running);
+    setProgressPercent(problem.isIntegerProgram ? 0 : undefined);
 
     try {
       if (problem.isIntegerProgram) {
         const res = await requestSolveBb(
           problem,
-          enablePresolve,
-          { branchingStrategy, timeoutMs: 30000, maxNodes: 2000 },
-          enableWorker
+          effectiveSettings.presolveEnabled,
+          {
+            branchingStrategy: effectiveSettings.branchingStrategy,
+            maxNodes: effectiveSettings.maxNodes,
+            maxDepth: effectiveSettings.maxDepth,
+            timeoutMs: effectiveSettings.timeoutSeconds * 1000,
+            eps: effectiveSettings.eps,
+            pivotEps: effectiveSettings.pivotEps,
+            sparseEnabled: effectiveSettings.sparseEnabled,
+            onProgress: (prog) => {
+              const pct = Math.min(99, Math.round((prog.exploredNodes / Math.max(1, prog.maxNodes)) * 100));
+              setProgressPercent(pct);
+            },
+          },
+          effectiveSettings.webWorkerEnabled
         );
 
         setBbResult(res.bb);
         setSimplexSolution(res.bb.lpRelaxation);
         setPresolveResult(res.presolve);
+        setIsCancelling(false);
+        setProgressPercent(undefined);
 
-        if (res.bb.status === 'optimal') {
-          setStatus('completed');
-          setStatusMessage(t.status.optimal);
-        } else if (res.bb.status === 'cancelled') {
-          setStatus('cancelled');
-          setStatusMessage(t.status.cancelled);
-        } else if (res.bb.status === 'feasible_timeout') {
-          setStatus('warning');
-          setStatusMessage(res.bb.warning || t.status.warning);
-        } else {
-          setStatus('error');
-          setStatusMessage(res.bb.warning || t.status.infeasible);
-        }
+        const banner = getBbStatusBannerInfo(res.bb);
+        setStatus(banner.uiStatus);
 
         if (onUpdateActiveProblem) {
           onUpdateActiveProblem(problem, { bb: res.bb, presolve: res.presolve });
         }
       } else {
-        const res = await requestSolveLp(problem, enablePresolve, enableWorker);
+        const res = await requestSolveLp(
+          problem,
+          effectiveSettings.presolveEnabled,
+          effectiveSettings.webWorkerEnabled,
+          {
+            eps: effectiveSettings.eps,
+            pivotEps: effectiveSettings.pivotEps,
+            sparseEnabled: effectiveSettings.sparseEnabled,
+          }
+        );
 
         setSimplexSolution(res.simplex);
         setBbResult(null);
         setPresolveResult(res.presolve);
+        setIsCancelling(false);
+        setProgressPercent(undefined);
 
         if (res.simplex.status === 'optimal') {
           setStatus('completed');
-          setStatusMessage(t.status.optimal);
+        } else if (res.simplex.status === 'cancelled') {
+          setStatus('cancelled');
         } else if (res.simplex.status === 'unbounded') {
           setStatus('error');
-          setStatusMessage(t.status.unbounded);
         } else if (res.simplex.status === 'iteration_limit') {
           setStatus('warning');
-          setStatusMessage(t.status.iterationLimit);
         } else {
           setStatus('error');
-          setStatusMessage(res.simplex.errorMessage || t.status.infeasible);
         }
 
         if (onUpdateActiveProblem) {
@@ -270,15 +314,16 @@ export const LpModule: React.FC<LpModuleProps> = ({
         }
       }
     } catch (err: any) {
+      setIsCancelling(false);
+      setProgressPercent(undefined);
       setStatus('error');
-      setStatusMessage(err?.message || 'Error occurred during optimization');
+      setErrorMessage(err?.message || '');
     }
   };
 
   const handleCancel = () => {
+    setIsCancelling(true);
     cancelCurrentRun();
-    setStatus('cancelled');
-    setStatusMessage(t.status.cancelled);
   };
 
   const handleLoadTwoVarDemo = () => {
@@ -288,18 +333,49 @@ export const LpModule: React.FC<LpModuleProps> = ({
     setBbResult(null);
     setPresolveResult(null);
     setStatus('idle');
+    setErrorMessage(null);
     if (onUpdateActiveProblem) onUpdateActiveProblem(SAMPLE_TWO_VAR_LP);
   };
 
   const handleLoadBenchmark = () => {
-    setProblem(INDUSTRIAL_BENCHMARK_LP);
+    setProblem(BENCHMARK_LP);
     setShowGraphical(false);
     setSimplexSolution(null);
     setBbResult(null);
     setPresolveResult(null);
     setStatus('idle');
-    if (onUpdateActiveProblem) onUpdateActiveProblem(INDUSTRIAL_BENCHMARK_LP);
+    setErrorMessage(null);
+    if (onUpdateActiveProblem) onUpdateActiveProblem(BENCHMARK_LP);
   };
+
+  const statusMessage = (() => {
+    if (status === 'idle') return '';
+    if (status === 'running') {
+      return isCancelling ? t.actions.cancelling : t.status.running;
+    }
+    if (errorMessage !== null) {
+      return errorMessage || t.lp.solveError;
+    }
+    if (bbResult) {
+      return getBbStatusBannerInfo(bbResult).msg;
+    }
+    if (simplexSolution) {
+      switch (simplexSolution.status) {
+        case 'optimal':
+          return t.status.optimal;
+        case 'cancelled':
+          return t.status.cancelled;
+        case 'unbounded':
+          return t.status.unbounded;
+        case 'iteration_limit':
+          return t.status.iterationLimit;
+        case 'infeasible':
+        default:
+          return t.status.infeasible;
+      }
+    }
+    return '';
+  })();
 
   return (
     <div className="space-y-6">
@@ -310,26 +386,27 @@ export const LpModule: React.FC<LpModuleProps> = ({
             {t.modules.lp}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Two-Phase Simplex & Branch and Bound with Bland’s Rule and Multi-Pass Presolve.
+            {t.lp.subtitle}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Load Sample Demos */}
           <button
+            type="button"
             onClick={handleLoadTwoVarDemo}
             className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <BarChart2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            <span>2D Graphical Demo</span>
+            <span>{t.actions.loadTwoVarDemo}</span>
           </button>
 
           <button
+            type="button"
             onClick={handleLoadBenchmark}
             className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Flame className="w-3.5 h-3.5 text-amber-500" />
-            <span>Benchmark Problem</span>
+            <span>{t.actions.applyBenchmark}</span>
           </button>
         </div>
       </div>
@@ -338,7 +415,8 @@ export const LpModule: React.FC<LpModuleProps> = ({
       <StatusBanner
         status={status}
         customMessage={statusMessage}
-        onCancel={handleCancel}
+        onCancel={status === 'running' && !isCancelling ? handleCancel : undefined}
+        progressPercent={progressPercent}
       />
 
       {/* Main Formulation Card */}
@@ -380,6 +458,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
             <label className="relative inline-flex items-center cursor-pointer">
               <input
                 type="checkbox"
+                aria-label={t.lp.isIntegerProgram}
                 checked={problem.isIntegerProgram}
                 onChange={(e) => handleIpToggle(e.target.checked)}
                 className="sr-only peer"
@@ -391,7 +470,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                 {t.lp.isIntegerProgram}
               </span>
               <p className="text-xs text-slate-500">
-                Solves via Branch and Bound with LP Relaxation side-by-side comparison.
+                {t.lp.ipSubtitle}
               </p>
             </div>
           </div>
@@ -407,6 +486,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
               </span>
             </h3>
             <button
+              type="button"
               onClick={addVariable}
               className="px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors flex items-center gap-1.5"
             >
@@ -424,7 +504,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                   <th className="px-3 py-2 text-start">{t.lp.objCoeff}</th>
                   <th className="px-3 py-2 text-start">{t.lp.lowerBound}</th>
                   <th className="px-3 py-2 text-start">{t.lp.upperBound}</th>
-                  <th className="px-3 py-2 text-end">Action</th>
+                  <th className="px-3 py-2 text-end">{t.actionCol}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -433,6 +513,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                     <td className="px-3 py-2">
                       <input
                         type="text"
+                        aria-label={`${t.lp.varName} ${idx + 1}`}
                         value={v.name}
                         onChange={(e) => updateVariable(idx, { name: e.target.value })}
                         className="w-28 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md font-medium"
@@ -440,6 +521,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                     </td>
                     <td className="px-3 py-2">
                       <select
+                        aria-label={`${t.lp.varType} ${v.name}`}
                         value={v.type}
                         onChange={(e) => updateVariable(idx, { type: e.target.value as VariableType })}
                         className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md"
@@ -453,6 +535,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                       <input
                         type="number"
                         step="any"
+                        aria-label={`${t.lp.objCoeff} ${v.name}`}
                         value={v.objCoeff}
                         onChange={(e) => updateVariable(idx, { objCoeff: parseFloat(e.target.value) || 0 })}
                         className="w-20 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md font-mono tabular-nums text-end"
@@ -462,6 +545,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                       <input
                         type="number"
                         step="any"
+                        aria-label={`${t.lp.lowerBound} ${v.name}`}
                         disabled={v.type === 'binary'}
                         value={v.lowerBound}
                         onChange={(e) => updateVariable(idx, { lowerBound: parseFloat(e.target.value) || 0 })}
@@ -472,6 +556,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                       <input
                         type="number"
                         step="any"
+                        aria-label={`${t.lp.upperBound} ${v.name}`}
                         disabled={v.type === 'binary'}
                         value={v.upperBound === Infinity ? '' : v.upperBound}
                         placeholder="∞"
@@ -485,9 +570,11 @@ export const LpModule: React.FC<LpModuleProps> = ({
                     </td>
                     <td className="px-3 py-2 text-end">
                       <button
+                        type="button"
                         onClick={() => removeVariable(idx)}
                         disabled={problem.variables.length <= 1}
-                        title="Delete variable"
+                        title={t.actions.deleteVariable}
+                        aria-label={`${t.actions.deleteVariable} ${v.name}`}
                         className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 disabled:opacity-30 rounded-md transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -510,6 +597,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
               </span>
             </h3>
             <button
+              type="button"
               onClick={addConstraint}
               className="px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors flex items-center gap-1.5"
             >
@@ -530,7 +618,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                   ))}
                   <th className="px-3 py-2 text-center">{t.lp.relation}</th>
                   <th className="px-3 py-2 text-end">{t.lp.rhs}</th>
-                  <th className="px-3 py-2 text-end">Action</th>
+                  <th className="px-3 py-2 text-end">{t.actionCol}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -539,6 +627,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                     <td className="px-3 py-2">
                       <input
                         type="text"
+                        aria-label={`${t.lp.constraintName} ${cIdx + 1}`}
                         value={c.name}
                         onChange={(e) => updateConstraint(cIdx, { name: e.target.value })}
                         className="w-32 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md font-medium"
@@ -549,6 +638,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                         <input
                           type="number"
                           step="any"
+                          aria-label={`${c.name} ${v.name}`}
                           value={c.coeffs[vIdx] ?? 0}
                           onChange={(e) =>
                             updateConstraintCoeff(cIdx, vIdx, parseFloat(e.target.value) || 0)
@@ -559,6 +649,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                     ))}
                     <td className="px-3 py-2 text-center">
                       <select
+                        aria-label={`${t.lp.relation} ${c.name}`}
                         value={c.op}
                         onChange={(e) => updateConstraint(cIdx, { op: e.target.value as ConstraintOp })}
                         className="px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md font-mono"
@@ -572,6 +663,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
                       <input
                         type="number"
                         step="any"
+                        aria-label={`${t.lp.rhs} ${c.name}`}
                         value={c.rhs}
                         onChange={(e) => updateConstraint(cIdx, { rhs: parseFloat(e.target.value) || 0 })}
                         className="w-20 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md font-mono tabular-nums text-end"
@@ -579,8 +671,10 @@ export const LpModule: React.FC<LpModuleProps> = ({
                     </td>
                     <td className="px-3 py-2 text-end">
                       <button
+                        type="button"
                         onClick={() => removeConstraint(cIdx)}
-                        title="Delete constraint"
+                        title={t.actions.deleteConstraint}
+                        aria-label={`${t.actions.deleteConstraint} ${c.name}`}
                         className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-md transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -597,6 +691,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={handleSolve}
               disabled={status === 'running'}
               className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl transition-all shadow-sm flex items-center gap-2"
@@ -607,6 +702,7 @@ export const LpModule: React.FC<LpModuleProps> = ({
 
             {problem.variables.length === 2 && (
               <button
+                type="button"
                 onClick={() => setShowGraphical(!showGraphical)}
                 className={`px-4 py-2.5 text-xs font-semibold rounded-xl border transition-all flex items-center gap-2 ${
                   showGraphical

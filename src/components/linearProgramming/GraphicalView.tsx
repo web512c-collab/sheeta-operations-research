@@ -55,7 +55,7 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
     // Collect all boundary lines: constraints + non-negativity
     problem.constraints.forEach((c, idx) => {
       linesList.push({
-        name: c.name || `Constraint ${idx + 1}`,
+        name: c.name || `${t.lp.defaultConstraintPrefix} ${idx + 1}`,
         a: c.coeffs[0],
         b: c.coeffs[1],
         c: c.rhs,
@@ -69,7 +69,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
     const lb1 = Number.isFinite(problem.variables[1]?.lowerBound) ? problem.variables[1].lowerBound : 0;
     const ub1 = Number.isFinite(problem.variables[1]?.upperBound) ? problem.variables[1].upperBound : Infinity;
 
-    // Add variable bound lines if applicable
     if (ub0 < Infinity) {
       linesList.push({
         name: `${problem.variables[0].name} <= ${ub0}`,
@@ -91,14 +90,12 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
       });
     }
 
-    // Include axis lines x1 = 0 and x2 = 0
     const allBoundaryLines: { a: number; b: number; c: number }[] = [
-      { a: 1, b: 0, c: 0 }, // x1 = 0
-      { a: 0, b: 1, c: 0 }, // x2 = 0
+      { a: 1, b: 0, c: 0 },
+      { a: 0, b: 1, c: 0 },
       ...linesList.map((l) => ({ a: l.a, b: l.b, c: l.c })),
     ];
 
-    // Find intersection of every line pair
     const candidatePoints: { x: number; y: number }[] = [];
     for (let i = 0; i < allBoundaryLines.length; i++) {
       for (let j = i + 1; j < allBoundaryLines.length; j++) {
@@ -115,7 +112,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
       }
     }
 
-    // Filter candidate points by feasibility against ALL constraints
     const feasiblePoints: Point[] = [];
     const c1 = problem.variables[0].objCoeff;
     const c2 = problem.variables[1].objCoeff;
@@ -123,7 +119,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
     for (const pt of candidatePoints) {
       let isFeasible = true;
 
-      // Check bounds
       if (
         pt.x < lb0 - EPS ||
         pt.x > ub0 + EPS ||
@@ -133,7 +128,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
         continue;
       }
 
-      // Check constraints
       for (const c of problem.constraints) {
         const lhs = c.coeffs[0] * pt.x + c.coeffs[1] * pt.y;
         if (c.op === '<=' && lhs > c.rhs + 1e-4) {
@@ -151,7 +145,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
       }
 
       if (isFeasible) {
-        // Avoid duplicate points
         const exists = feasiblePoints.some(
           (p) => Math.abs(p.x - pt.x) < 1e-3 && Math.abs(p.y - pt.y) < 1e-3
         );
@@ -166,7 +159,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
       }
     }
 
-    // If optimalPoint is provided and not yet in feasiblePoints, add it
     if (optimalPoint && optimalPoint.length === 2) {
       const exists = feasiblePoints.some(
         (p) => Math.abs(p.x - optimalPoint[0]) < 1e-3 && Math.abs(p.y - optimalPoint[1]) < 1e-3
@@ -182,7 +174,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
       }
     }
 
-    // Determine scale: max X and max Y
     let maxXVal = 10;
     let maxYVal = 10;
     feasiblePoints.forEach((p) => {
@@ -202,7 +193,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
     const scaleX = maxXVal * 1.25;
     const scaleY = maxYVal * 1.25;
 
-    // Order points by angle around centroid to build feasible polygon path
     let polygonPath = '';
     if (feasiblePoints.length >= 3) {
       const cx = feasiblePoints.reduce((sum, p) => sum + p.x, 0) / feasiblePoints.length;
@@ -229,7 +219,7 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
       maxY: scaleY,
       feasiblePolygonSvg: polygonPath,
     };
-  }, [problem, optimalPoint]);
+  }, [problem, optimalPoint, t]);
 
   if (problem.variables.length !== 2) {
     return (
@@ -239,7 +229,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
     );
   }
 
-  // SVG coordinate transformation
   const toSvgX = (x: number) => 50 + (x / maxX) * 400;
   const toSvgY = (y: number) => 450 - (y / maxY) * 400;
 
@@ -263,10 +252,8 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* SVG Canvas */}
         <div className="lg:col-span-2 bg-slate-50 dark:bg-slate-950 rounded-xl p-4 border border-slate-200 dark:border-slate-800 overflow-hidden flex items-center justify-center">
           <svg viewBox="0 0 500 500" className="w-full max-w-[480px] h-auto select-none">
-            {/* Grid Lines */}
             {[0.25, 0.5, 0.75, 1.0].map((frac) => (
               <React.Fragment key={frac}>
                 <line
@@ -308,7 +295,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
               </React.Fragment>
             ))}
 
-            {/* Feasible Region Polygon */}
             {feasiblePolygonSvg && (
               <path
                 d={feasiblePolygonSvg}
@@ -318,7 +304,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
               />
             )}
 
-            {/* Axes */}
             <line x1={50} y1={450} x2={465} y2={450} stroke="#475569" strokeWidth="2" />
             <line x1={50} y1={450} x2={50} y2={35} stroke="#475569" strokeWidth="2" />
             <text x={470} y={454} fontSize="11" fontWeight="bold" fill="#334155" className="dark:fill-slate-300">
@@ -328,9 +313,7 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
               x₂
             </text>
 
-            {/* Constraint Lines */}
             {lines.map((l, idx) => {
-              // Plot line segment across bounding box
               let p1x = 0;
               let p1y = 0;
               let p2x = 0;
@@ -342,13 +325,11 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
                 p2x = l.c / l.a;
                 p2y = 0;
               } else if (Math.abs(l.b) <= EPS) {
-                // Vertical line x = c/a
                 p1x = l.c / l.a;
                 p1y = 0;
                 p2x = l.c / l.a;
                 p2y = maxY;
               } else {
-                // Horizontal line y = c/b
                 p1x = 0;
                 p1y = l.c / l.b;
                 p2x = maxX;
@@ -369,7 +350,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
               );
             })}
 
-            {/* Corner Points */}
             {cornerPoints.map((pt, idx) => {
               const sx = toSvgX(pt.x);
               const sy = toSvgY(pt.y);
@@ -399,7 +379,6 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
           </svg>
         </div>
 
-        {/* Legend & Corner Points Table */}
         <div className="space-y-4">
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
@@ -425,8 +404,8 @@ export const GraphicalView: React.FC<GraphicalViewProps> = ({
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-semibold">
                   <tr>
-                    <th className="px-3 py-2 text-start">Point (x₁, x₂)</th>
-                    <th className="px-3 py-2 text-end">Z Value</th>
+                    <th className="px-3 py-2 text-start">{t.lp.pointCol}</th>
+                    <th className="px-3 py-2 text-end">{t.lp.zValueCol}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">

@@ -1,6 +1,7 @@
 /**
  * Sheeta Operations Research
  * Multi-Scenario Simulation Engine (Monte Carlo & Parameter Sweep)
+ * Supports Pooled Parallel Worker Chunking, Settings Forwarding & Cooperative Cancellation
  */
 
 import {
@@ -9,13 +10,19 @@ import {
   ScenarioRun,
   SimulationSummary,
   SimulationType,
+  SolverSettings,
   StochasticParam,
 } from '../types';
-import { solveBranchAndBound } from './branchAndBound';
+import {
+  PipelineOptions,
+  runBbSolvePipeline,
+  runBbSolvePipelineAsync,
+  runLpSolvePipeline,
+  runLpSolvePipelineAsync,
+} from './lpSolvePipeline';
 import { snapZero } from './matrix';
 import { solvePertCpm } from './pertCpm';
 import { solveEoq, solveQueuing } from './queuingEoq';
-import { solveTwoPhaseSimplex } from './simplexTwoPhase';
 import { solveTransportation } from './transportation';
 
 export interface RunSimulationOptions {
@@ -23,38 +30,103 @@ export interface RunSimulationOptions {
   numScenarios: number;
   param: StochasticParam;
   baseProblem: any;
+  solverSettings?: Partial<SolverSettings>;
   shouldCancel?: () => boolean;
+  cancelBuffer?: Int32Array;
   onProgress?: (completed: number, total: number) => void;
+  yieldEveryScenarios?: number;
 }
 
-export function runSimulationBatch(options: RunSimulationOptions): SimulationSummary {
-  const { type, numScenarios, param, baseProblem, shouldCancel, onProgress } = options;
-  const scenarios: ScenarioRun[] = [];
+export interface ScenarioChunkItem {
+  index: number;
+  sampledVal: number;
+}
 
+function isCancelledNow(shouldCancel?: () => boolean, cancelBuffer?: Int32Array): boolean {
+  if (cancelBuffer && Atomics.load(cancelBuffer, 0) !== 0) {
+    return true;
+  }
+  return Boolean(shouldCancel && shouldCancel());
+}
+
+function buildPipelineOptions(
+  solverSettings?: Partial<SolverSettings>,
+  shouldCancel?: () => boolean,
+  cancelBuffer?: Int32Array
+): PipelineOptions {
+  return {
+    branchingStrategy: solverSettings?.branchingStrategy ?? 'most_fractional',
+    maxNodes: solverSettings?.maxNodes ?? 2000,
+    maxDepth: solverSettings?.maxDepth ?? 60,
+    timeoutMs: (solverSettings?.timeoutSeconds ?? 30) * 1000,
+    eps: solverSettings?.eps,
+    pivotEps: solverSettings?.pivotEps,
+    sparseEnabled: solverSettings?.sparseEnabled ?? true,
+    shouldCancel,
+    cancelBuffer,
+  };
+}
+
+export function generateScenarioParamValues(
+  type: SimulationType,
+  numScenarios: number,
+  param: StochasticParam
+): number[] {
+  const values: number[] = [];
   const isSweep = type === 'parameter_sweep';
   const sweepStart = param.sweepStart ?? param.min;
   const sweepEnd = param.sweepEnd ?? param.max;
   const sweepSteps = Math.max(2, isSweep ? numScenarios : 2);
 
   for (let i = 0; i < numScenarios; i++) {
-    if (shouldCancel && shouldCancel()) {
+    if (isSweep) {
+      const stepSize = (sweepEnd - sweepStart) / (sweepSteps - 1);
+      values.push(sweepStart + i * stepSize);
+    } else {
+      values.push(sampleDistribution(param.distribution, param));
+    }
+  }
+  return values;
+}
+
+export function runSimulationBatch(options: RunSimulationOptions): SimulationSummary {
+  const {
+    type,
+    numScenarios,
+    param,
+    baseProblem,
+    solverSettings,
+    shouldCancel,
+    cancelBuffer,
+    onProgress,
+  } = options;
+
+  const sampledVals = generateScenarioParamValues(type, numScenarios, param);
+  const scenarios: ScenarioRun[] = [];
+  let cancelled = false;
+
+  for (let i = 0; i < sampledVals.length; i++) {
+    if (isCancelledNow(shouldCancel, cancelBuffer)) {
+      cancelled = true;
       break;
     }
 
-    let sampledVal = 0;
-    if (isSweep) {
-      const stepSize = (sweepEnd - sweepStart) / (sweepSteps - 1);
-      sampledVal = sweepStart + i * stepSize;
-    } else {
-      sampledVal = sampleDistribution(param.distribution, param);
-    }
-
-    // Apply sampledVal to cloned problem
+    const sampledVal = sampledVals[i];
     const clonedProblem = JSON.parse(JSON.stringify(baseProblem));
     applyParamToProblem(clonedProblem, param.paramKey, sampledVal, param.targetModule);
 
-    // Solve cloned problem
-    const result = evaluateProblem(clonedProblem, param.targetModule);
+    const result = evaluateProblemSync(
+      clonedProblem,
+      param.targetModule,
+      solverSettings,
+      shouldCancel,
+      cancelBuffer
+    );
+
+    if (result.status === 'cancelled' || isCancelledNow(shouldCancel, cancelBuffer)) {
+      cancelled = true;
+      break;
+    }
 
     scenarios.push({
       id: i + 1,
@@ -67,15 +139,145 @@ export function runSimulationBatch(options: RunSimulationOptions): SimulationSum
       problemSnapshot: clonedProblem,
     });
 
-    if (onProgress && (i % 10 === 0 || i === numScenarios - 1)) {
-      onProgress(i + 1, numScenarios);
+    if (onProgress && (i % 5 === 0 || i === sampledVals.length - 1)) {
+      onProgress(i + 1, sampledVals.length);
     }
   }
 
-  // Calculate statistics over feasible scenarios
-  const feasibleScenarios = scenarios.filter((s) => s.isFeasible);
+  return aggregateSimulationResults(scenarios, type, param, baseProblem, {
+    cancelled,
+    workerPoolSize: 1,
+    limitsUsed: solverSettings,
+  });
+}
+
+export async function runSimulationBatchAsync(
+  options: RunSimulationOptions
+): Promise<SimulationSummary> {
+  const {
+    type,
+    numScenarios,
+    param,
+    baseProblem,
+    solverSettings,
+    shouldCancel,
+    cancelBuffer,
+    onProgress,
+    yieldEveryScenarios = 1,
+  } = options;
+
+  const sampledVals = generateScenarioParamValues(type, numScenarios, param);
+  const items: ScenarioChunkItem[] = sampledVals.map((sampledVal, index) => ({
+    index,
+    sampledVal,
+  }));
+
+  const { scenarios, cancelled } = await evaluateScenarioChunkAsync(items, {
+    param,
+    baseProblem,
+    solverSettings,
+    shouldCancel,
+    cancelBuffer,
+    onProgress: onProgress
+      ? (completed) => onProgress(completed, sampledVals.length)
+      : undefined,
+    yieldEveryScenarios,
+  });
+
+  return aggregateSimulationResults(scenarios, type, param, baseProblem, {
+    cancelled,
+    workerPoolSize: 1,
+    limitsUsed: solverSettings,
+  });
+}
+
+export async function evaluateScenarioChunkAsync(
+  items: ScenarioChunkItem[],
+  options: {
+    param: StochasticParam;
+    baseProblem: any;
+    solverSettings?: Partial<SolverSettings>;
+    shouldCancel?: () => boolean;
+    cancelBuffer?: Int32Array;
+    onProgress?: (completed: number, total: number) => void;
+    yieldEveryScenarios?: number;
+  }
+): Promise<{ scenarios: ScenarioRun[]; cancelled: boolean }> {
+  const {
+    param,
+    baseProblem,
+    solverSettings,
+    shouldCancel,
+    cancelBuffer,
+    onProgress,
+    yieldEveryScenarios = 1,
+  } = options;
+
+  const scenarios: ScenarioRun[] = [];
+  let cancelled = false;
+  const total = items.length;
+
+  for (let k = 0; k < items.length; k++) {
+    if (isCancelledNow(shouldCancel, cancelBuffer)) {
+      cancelled = true;
+      break;
+    }
+
+    const { index, sampledVal } = items[k];
+    const clonedProblem = JSON.parse(JSON.stringify(baseProblem));
+    applyParamToProblem(clonedProblem, param.paramKey, sampledVal, param.targetModule);
+
+    const result = await evaluateProblemAsync(
+      clonedProblem,
+      param.targetModule,
+      solverSettings,
+      shouldCancel,
+      cancelBuffer
+    );
+
+    if (result.status === 'cancelled' || isCancelledNow(shouldCancel, cancelBuffer)) {
+      cancelled = true;
+      break;
+    }
+
+    scenarios.push({
+      id: index + 1,
+      title: `Scenario #${index + 1} (${param.label} = ${sampledVal.toFixed(2)})`,
+      paramValues: { [param.paramKey]: snapZero(sampledVal) },
+      objectiveValue: snapZero(result.objectiveValue),
+      isFeasible: result.isFeasible,
+      status: result.status,
+      summary: result.summary,
+      problemSnapshot: clonedProblem,
+    });
+
+    if (onProgress && (k % 2 === 0 || k === total - 1)) {
+      onProgress(k + 1, total);
+    }
+
+    if ((k + 1) % Math.max(1, yieldEveryScenarios) === 0 && k < total - 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  }
+
+  return { scenarios, cancelled };
+}
+
+export function aggregateSimulationResults(
+  scenarios: ScenarioRun[],
+  type: SimulationType,
+  param: StochasticParam,
+  baseProblem: any,
+  extras?: {
+    cancelled?: boolean;
+    workerPoolSize?: number;
+    limitsUsed?: Partial<SolverSettings>;
+  }
+): SimulationSummary {
+  const ordered = [...scenarios].sort((a, b) => a.id - b.id);
+  const feasibleScenarios = ordered.filter((s) => s.isFeasible);
   const feasibleCount = feasibleScenarios.length;
-  const infeasibleCount = scenarios.length - feasibleCount;
+  const infeasibleCount = ordered.length - feasibleCount;
 
   const isMinimize =
     param.targetModule === 'transportation' ||
@@ -95,21 +297,22 @@ export function runSimulationBatch(options: RunSimulationOptions): SimulationSum
     const sum = values.reduce((acc, v) => acc + v, 0);
     meanValue = sum / feasibleCount;
 
-    // Median
     const mid = Math.floor(values.length / 2);
     medianValue = values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
 
-    // Standard deviation
-    const variance = values.reduce((acc, v) => acc + Math.pow(v - meanValue, 2), 0) / feasibleCount;
+    const variance =
+      values.reduce((acc, v) => acc + Math.pow(v - meanValue, 2), 0) / feasibleCount;
     stdDevValue = Math.sqrt(variance);
   }
 
-  // Generate distribution histogram bins
-  const distributionBins = generateHistogramBins(feasibleScenarios.map((s) => s.objectiveValue), 10);
+  const distributionBins = generateHistogramBins(
+    feasibleScenarios.map((s) => s.objectiveValue),
+    10
+  );
 
   return {
     type,
-    totalScenarios: scenarios.length,
+    totalScenarios: ordered.length,
     feasibleCount,
     infeasibleCount,
     bestValue: snapZero(bestValue),
@@ -118,13 +321,13 @@ export function runSimulationBatch(options: RunSimulationOptions): SimulationSum
     medianValue: snapZero(medianValue),
     stdDevValue: snapZero(stdDevValue),
     distributionBins,
-    scenarios,
+    scenarios: ordered,
+    cancelled: extras?.cancelled,
+    workerPoolSize: extras?.workerPoolSize,
+    limitsUsed: extras?.limitsUsed,
   };
 }
 
-/**
- * Samples from specified probability distribution
- */
 function sampleDistribution(dist: DistributionType, param: StochasticParam): number {
   if (dist === 'uniform') {
     return param.min + Math.random() * (param.max - param.min);
@@ -133,7 +336,8 @@ function sampleDistribution(dist: DistributionType, param: StochasticParam): num
   if (dist === 'triangular') {
     const a = param.min;
     const b = param.max;
-    const c = param.mode;
+    const c = Math.max(a, Math.min(b, param.mode));
+    if (Math.abs(b - a) < 1e-12) return a;
     const u = Math.random();
     const fc = (c - a) / (b - a);
     if (u < fc) {
@@ -142,7 +346,6 @@ function sampleDistribution(dist: DistributionType, param: StochasticParam): num
     return b - Math.sqrt((1 - u) * (b - a) * (b - c));
   }
 
-  // Normal distribution (Box-Muller)
   const u1 = Math.max(1e-10, Math.random());
   const u2 = Math.random();
   const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
@@ -150,9 +353,6 @@ function sampleDistribution(dist: DistributionType, param: StochasticParam): num
   return Math.max(param.min, Math.min(param.max, val));
 }
 
-/**
- * Modifies base problem by injecting the sampled parameter value
- */
 function applyParamToProblem(problem: any, key: string, val: number, module: string): void {
   if (module === 'lp') {
     const lp = problem as LpProblem;
@@ -199,10 +399,13 @@ function applyParamToProblem(problem: any, key: string, val: number, module: str
   }
 }
 
-/**
- * Solves modified problem and returns outcome
- */
-function evaluateProblem(problem: any, module: string): {
+function evaluateProblemSync(
+  problem: any,
+  module: string,
+  solverSettings?: Partial<SolverSettings>,
+  shouldCancel?: () => boolean,
+  cancelBuffer?: Int32Array
+): {
   objectiveValue: number;
   isFeasible: boolean;
   status: string;
@@ -211,69 +414,162 @@ function evaluateProblem(problem: any, module: string): {
   try {
     if (module === 'lp') {
       const lp = problem as LpProblem;
+      const enablePresolve = solverSettings?.presolveEnabled ?? true;
+      const pipeOpts = buildPipelineOptions(solverSettings, shouldCancel, cancelBuffer);
+
       if (lp.isIntegerProgram) {
-        const res = solveBranchAndBound(lp, { maxNodes: 200, timeoutMs: 2000 });
-        const feasible = res.status === 'optimal' || res.status === 'feasible_timeout';
+        const { bb } = runBbSolvePipeline(lp, enablePresolve, pipeOpts);
+        if (bb.status === 'cancelled') {
+          return { objectiveValue: 0, isFeasible: false, status: 'cancelled', summary: 'Cancelled' };
+        }
+        const feasible =
+          bb.bestIntegerSolution !== undefined &&
+          bb.status !== 'infeasible' &&
+          bb.status !== 'unbounded';
         return {
-          objectiveValue: res.bestObjectiveValue ?? 0,
+          objectiveValue: bb.bestObjectiveValue ?? 0,
           isFeasible: feasible,
-          status: res.status,
-          summary: feasible ? `Optimal Integer Z = ${res.bestObjectiveValue?.toFixed(2)}` : 'Infeasible',
+          status: bb.status,
+          summary: feasible
+            ? `${bb.status}: Z = ${bb.bestObjectiveValue?.toFixed(2)}`
+            : bb.status,
         };
       }
-      const res = solveTwoPhaseSimplex(lp);
-      return {
-        objectiveValue: res.objectiveValue,
-        isFeasible: res.status === 'optimal',
-        status: res.status,
-        summary: res.status === 'optimal' ? `Optimal Z = ${res.objectiveValue.toFixed(2)}` : res.status,
-      };
-    }
 
-    if (module === 'transportation') {
-      const res = solveTransportation(problem);
-      return {
-        objectiveValue: res.totalCost,
-        isFeasible: true,
-        status: 'optimal',
-        summary: `Total Cost = ${res.totalCost.toFixed(2)}`,
-      };
-    }
-
-    if (module === 'pert') {
-      const res = solvePertCpm(problem);
-      return {
-        objectiveValue: res.totalDuration,
-        isFeasible: true,
-        status: 'completed',
-        summary: `Duration = ${res.totalDuration.toFixed(1)} (Critical Path: ${res.criticalPath.join(' → ')})`,
-      };
-    }
-
-    if (module === 'queuing_eoq') {
-      if ('arrivalRate' in problem) {
-        const res = solveQueuing(problem);
-        return {
-          objectiveValue: res.w,
-          isFeasible: res.w !== Infinity,
-          status: res.w !== Infinity ? 'optimal' : 'unstable',
-          summary: `System Time W = ${res.w.toFixed(2)}, L = ${res.l.toFixed(2)}`,
-        };
+      const { simplex } = runLpSolvePipeline(lp, enablePresolve, pipeOpts);
+      if (simplex.status === 'cancelled') {
+        return { objectiveValue: 0, isFeasible: false, status: 'cancelled', summary: 'Cancelled' };
       }
-      const res = solveEoq(problem);
       return {
-        objectiveValue: res.totalAnnualCost,
-        isFeasible: true,
-        status: 'optimal',
-        summary: `Optimal Q = ${res.optimalQty.toFixed(0)}, Total Cost = $${res.totalAnnualCost.toFixed(2)}`,
+        objectiveValue: simplex.objectiveValue,
+        isFeasible: simplex.status === 'optimal',
+        status: simplex.status,
+        summary:
+          simplex.status === 'optimal'
+            ? `Optimal Z = ${simplex.objectiveValue.toFixed(2)}`
+            : simplex.status,
       };
     }
+
+    return evaluateNonLpProblem(problem, module);
   } catch (err: any) {
     return {
       objectiveValue: 0,
       isFeasible: false,
       status: 'error',
       summary: err?.message || 'Error',
+    };
+  }
+}
+
+async function evaluateProblemAsync(
+  problem: any,
+  module: string,
+  solverSettings?: Partial<SolverSettings>,
+  shouldCancel?: () => boolean,
+  cancelBuffer?: Int32Array
+): Promise<{
+  objectiveValue: number;
+  isFeasible: boolean;
+  status: string;
+  summary: string;
+}> {
+  try {
+    if (module === 'lp') {
+      const lp = problem as LpProblem;
+      const enablePresolve = solverSettings?.presolveEnabled ?? true;
+      const pipeOpts = buildPipelineOptions(solverSettings, shouldCancel, cancelBuffer);
+
+      if (lp.isIntegerProgram) {
+        const { bb } = await runBbSolvePipelineAsync(lp, enablePresolve, pipeOpts);
+        if (bb.status === 'cancelled') {
+          return { objectiveValue: 0, isFeasible: false, status: 'cancelled', summary: 'Cancelled' };
+        }
+        const feasible =
+          bb.bestIntegerSolution !== undefined &&
+          bb.status !== 'infeasible' &&
+          bb.status !== 'unbounded';
+        return {
+          objectiveValue: bb.bestObjectiveValue ?? 0,
+          isFeasible: feasible,
+          status: bb.status,
+          summary: feasible
+            ? `${bb.status}: Z = ${bb.bestObjectiveValue?.toFixed(2)}`
+            : bb.status,
+        };
+      }
+
+      const { simplex } = await runLpSolvePipelineAsync(lp, enablePresolve, pipeOpts);
+      if (simplex.status === 'cancelled') {
+        return { objectiveValue: 0, isFeasible: false, status: 'cancelled', summary: 'Cancelled' };
+      }
+      return {
+        objectiveValue: simplex.objectiveValue,
+        isFeasible: simplex.status === 'optimal',
+        status: simplex.status,
+        summary:
+          simplex.status === 'optimal'
+            ? `Optimal Z = ${simplex.objectiveValue.toFixed(2)}`
+            : simplex.status,
+      };
+    }
+
+    return evaluateNonLpProblem(problem, module);
+  } catch (err: any) {
+    return {
+      objectiveValue: 0,
+      isFeasible: false,
+      status: 'error',
+      summary: err?.message || 'Error',
+    };
+  }
+}
+
+function evaluateNonLpProblem(
+  problem: any,
+  module: string
+): {
+  objectiveValue: number;
+  isFeasible: boolean;
+  status: string;
+  summary: string;
+} {
+  if (module === 'transportation') {
+    const res = solveTransportation(problem);
+    return {
+      objectiveValue: res.totalCost,
+      isFeasible: true,
+      status: 'optimal',
+      summary: `Total Cost = ${res.totalCost.toFixed(2)}`,
+    };
+  }
+
+  if (module === 'pert') {
+    const res = solvePertCpm(problem);
+    return {
+      objectiveValue: res.totalDuration,
+      isFeasible: true,
+      status: 'completed',
+      summary: `Duration = ${res.totalDuration.toFixed(1)} (Critical Path: ${res.criticalPath.join(' -> ')})`,
+    };
+  }
+
+  if (module === 'queuing_eoq') {
+    if ('arrivalRate' in problem) {
+      const res = solveQueuing(problem);
+      return {
+        objectiveValue: res.w,
+        isFeasible: res.w !== Infinity,
+        status: res.w !== Infinity ? 'optimal' : 'unstable',
+        summary: `System Time W = ${res.w.toFixed(2)}, L = ${res.l.toFixed(2)}`,
+      };
+    }
+    const res = solveEoq(problem);
+    return {
+      objectiveValue: res.totalAnnualCost,
+      isFeasible: true,
+      status: 'optimal',
+      summary: `Optimal Q = ${res.optimalQty.toFixed(0)}, Total Cost = ${res.totalAnnualCost.toFixed(2)}`,
     };
   }
 
@@ -285,9 +581,6 @@ function evaluateProblem(problem: any, module: string): {
   };
 }
 
-/**
- * Builds frequency distribution histogram bins
- */
 function generateHistogramBins(
   values: number[],
   numBins: number = 10

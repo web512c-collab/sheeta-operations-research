@@ -1,9 +1,9 @@
 /**
  * Sheeta Operations Research
- * Persistent Storage Layer (IndexedDB with LocalStorage Fallback)
+ * Persistent Storage Layer (IndexedDB with LocalStorage Fallback & Schema Validation)
  */
 
-import { AppSettings, SavedProblem } from '../types';
+import { AppSettings, ORModuleType, SavedProblem } from '../types';
 
 const DB_NAME = 'SheetaORDatabase';
 const DB_VERSION = 1;
@@ -12,6 +12,16 @@ const STORE_SETTINGS = 'app_settings';
 
 const LOCAL_STORAGE_PROBLEMS_KEY = 'sheeta_or_saved_problems';
 const LOCAL_STORAGE_SETTINGS_KEY = 'sheeta_or_settings';
+
+const SUPPORTED_MODULES: ReadonlySet<string> = new Set<ORModuleType>([
+  'lp',
+  'transportation',
+  'pert',
+  'queuing_eoq',
+  'simulation',
+]);
+
+const SUPPORTED_BACKUP_VERSIONS: ReadonlySet<string> = new Set(['1.0.0', '1.1.0']);
 
 export const DEFAULT_SETTINGS: AppSettings = {
   presolveEnabled: true,
@@ -26,6 +36,61 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoCopyReport: true,
   theme: 'light',
 };
+
+export function validateAppSettings(raw: Partial<AppSettings>): {
+  valid: boolean;
+  error?: string;
+  sanitized: AppSettings;
+} {
+  const merged: AppSettings = { ...DEFAULT_SETTINGS, ...raw };
+
+  if (!Number.isInteger(merged.maxNodes) || merged.maxNodes < 1 || merged.maxNodes > 1000000) {
+    return {
+      valid: false,
+      error: 'maxNodes must be an integer between 1 and 1,000,000.',
+      sanitized: DEFAULT_SETTINGS,
+    };
+  }
+  if (!Number.isInteger(merged.maxDepth) || merged.maxDepth < 0 || merged.maxDepth > 1000) {
+    return {
+      valid: false,
+      error: 'maxDepth must be an integer between 0 and 1,000.',
+      sanitized: DEFAULT_SETTINGS,
+    };
+  }
+  if (!Number.isFinite(merged.timeoutSeconds) || merged.timeoutSeconds < 1 || merged.timeoutSeconds > 3600) {
+    return {
+      valid: false,
+      error: 'timeoutSeconds must be between 1 and 3,600.',
+      sanitized: DEFAULT_SETTINGS,
+    };
+  }
+  if (!Number.isFinite(merged.eps) || merged.eps <= 0 || merged.eps >= 0.01) {
+    return {
+      valid: false,
+      error: 'eps tolerance must be strictly between 0 and 0.01.',
+      sanitized: DEFAULT_SETTINGS,
+    };
+  }
+  if (!Number.isFinite(merged.pivotEps) || merged.pivotEps <= 0 || merged.pivotEps >= merged.eps) {
+    return {
+      valid: false,
+      error: 'pivotEps must be strictly positive and smaller than eps.',
+      sanitized: DEFAULT_SETTINGS,
+    };
+  }
+  if (
+    merged.branchingStrategy !== 'most_fractional' &&
+    merged.branchingStrategy !== 'first_fractional'
+  ) {
+    merged.branchingStrategy = 'most_fractional';
+  }
+  if (merged.theme !== 'light' && merged.theme !== 'dark') {
+    merged.theme = 'light';
+  }
+
+  return { valid: true, sanitized: merged };
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -65,7 +130,6 @@ export async function saveProblem(problem: SavedProblem): Promise<void> {
       req.onerror = () => reject(req.error);
     });
   } catch {
-    // Fallback to localStorage
     const current = getLocalProblems();
     const idx = current.findIndex((p) => p.id === problem.id);
     if (idx >= 0) {
@@ -110,6 +174,7 @@ export async function deleteSavedProblem(id: string): Promise<void> {
 
 function getLocalProblems(): SavedProblem[] {
   try {
+    if (typeof localStorage === 'undefined') return [];
     const raw = localStorage.getItem(LOCAL_STORAGE_PROBLEMS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
@@ -119,7 +184,9 @@ function getLocalProblems(): SavedProblem[] {
 
 function saveLocalProblems(problems: SavedProblem[]): void {
   try {
-    localStorage.setItem(LOCAL_STORAGE_PROBLEMS_KEY, JSON.stringify(problems));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LOCAL_STORAGE_PROBLEMS_KEY, JSON.stringify(problems));
+    }
   } catch {
     // quota exceeded or private mode
   }
@@ -138,7 +205,7 @@ export async function loadSettings(): Promise<AppSettings> {
       const req = store.get('app_settings');
       req.onsuccess = () => {
         if (req.result && req.result.settings) {
-          resolve({ ...DEFAULT_SETTINGS, ...req.result.settings });
+          resolve(validateAppSettings(req.result.settings).sanitized);
         } else {
           resolve(loadLocalSettings());
         }
@@ -151,30 +218,36 @@ export async function loadSettings(): Promise<AppSettings> {
 }
 
 export async function saveSettings(settings: AppSettings): Promise<void> {
+  const checked = validateAppSettings(settings);
+  const toSave = checked.valid ? checked.sanitized : DEFAULT_SETTINGS;
   try {
     const db = await openDb();
     return new Promise((resolve) => {
       const tx = db.transaction(STORE_SETTINGS, 'readwrite');
       const store = tx.objectStore(STORE_SETTINGS);
-      const req = store.put({ key: 'app_settings', settings });
+      const req = store.put({ key: 'app_settings', settings: toSave });
       req.onsuccess = () => {
-        saveLocalSettings(settings);
+        saveLocalSettings(toSave);
         resolve();
       };
       req.onerror = () => {
-        saveLocalSettings(settings);
+        saveLocalSettings(toSave);
         resolve();
       };
     });
   } catch {
-    saveLocalSettings(settings);
+    saveLocalSettings(toSave);
   }
 }
 
 function loadLocalSettings(): AppSettings {
   try {
+    if (typeof localStorage === 'undefined') return DEFAULT_SETTINGS;
     const raw = localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw);
+    const checked = validateAppSettings(parsed);
+    return checked.valid ? checked.sanitized : DEFAULT_SETTINGS;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -182,7 +255,9 @@ function loadLocalSettings(): AppSettings {
 
 function saveLocalSettings(settings: AppSettings): void {
   try {
-    localStorage.setItem(LOCAL_STORAGE_SETTINGS_KEY, JSON.stringify(settings));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LOCAL_STORAGE_SETTINGS_KEY, JSON.stringify(settings));
+    }
   } catch {
     // ignore
   }
@@ -198,7 +273,7 @@ export async function exportWorkspaceJson(): Promise<string> {
 
   const backup = {
     app: 'Sheeta Operations Research',
-    version: '1.0.0',
+    version: '1.1.0',
     exportedAt: new Date().toISOString(),
     settings,
     problems,
@@ -208,22 +283,69 @@ export async function exportWorkspaceJson(): Promise<string> {
 }
 
 export async function importWorkspaceJson(jsonStr: string): Promise<{ count: number }> {
-  const data = JSON.parse(jsonStr);
-  if (!data || !Array.isArray(data.problems)) {
-    throw new Error('Invalid workspace backup JSON: missing problems array');
+  let data: any;
+  try {
+    data = JSON.parse(jsonStr);
+  } catch {
+    throw new Error('Malformed JSON backup file: unable to parse JSON.');
   }
 
-  let count = 0;
-  for (const prob of data.problems) {
-    if (prob.id && prob.title && prob.module) {
-      await saveProblem(prob);
-      count++;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('Invalid workspace backup JSON: expected a JSON object.');
+  }
+
+  if (data.version !== undefined && !SUPPORTED_BACKUP_VERSIONS.has(String(data.version))) {
+    throw new Error(
+      `Unsupported backup schema version "${String(data.version)}". Supported versions: 1.0.0, 1.1.0.`
+    );
+  }
+
+  if (data.app !== undefined && data.app !== 'Sheeta Operations Research') {
+    throw new Error(`Invalid backup application signature: "${String(data.app)}".`);
+  }
+
+  if (!Array.isArray(data.problems)) {
+    throw new Error('Invalid workspace backup JSON: missing problems array.');
+  }
+
+  if (data.settings !== undefined) {
+    if (typeof data.settings !== 'object' || data.settings === null || Array.isArray(data.settings)) {
+      throw new Error('Invalid workspace backup JSON: settings must be an object.');
+    }
+    const checked = validateAppSettings(data.settings);
+    if (!checked.valid) {
+      throw new Error(`Invalid settings in backup: ${checked.error}`);
     }
   }
 
-  if (data.settings) {
-    await saveSettings({ ...DEFAULT_SETTINGS, ...data.settings });
+  const validProblems: SavedProblem[] = [];
+  for (let i = 0; i < data.problems.length; i++) {
+    const prob = data.problems[i];
+    if (
+      !prob ||
+      typeof prob !== 'object' ||
+      typeof prob.id !== 'string' ||
+      !prob.id.trim() ||
+      typeof prob.title !== 'string' ||
+      !prob.title.trim() ||
+      typeof prob.module !== 'string' ||
+      !SUPPORTED_MODULES.has(prob.module) ||
+      prob.data === undefined
+    ) {
+      throw new Error(
+        `Invalid problem entry at index ${i}: requires non-empty id, title, valid module, and data.`
+      );
+    }
+    validProblems.push(prob as SavedProblem);
   }
 
-  return { count };
+  for (const prob of validProblems) {
+    await saveProblem(prob);
+  }
+
+  if (data.settings) {
+    await saveSettings(validateAppSettings(data.settings).sanitized);
+  }
+
+  return { count: validProblems.length };
 }

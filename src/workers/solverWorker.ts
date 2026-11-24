@@ -1,26 +1,87 @@
 /**
  * Sheeta Operations Research
- * Background Web Worker for Heavy Branch & Bound and Scenario Simulations
+ * Async Web Worker for LP, Branch & Bound, and Pooled Scenario Simulations
  */
 
-import { runBbSolvePipeline, runLpSolvePipeline } from '../engines/lpSolvePipeline';
-import { runSimulationBatch } from '../engines/simulation';
+import { runBbSolvePipelineAsync, runLpSolvePipelineAsync } from '../engines/lpSolvePipeline';
+import {
+  evaluateScenarioChunkAsync,
+  runSimulationBatchAsync,
+} from '../engines/simulation';
 
-let isCancelled = false;
+const cancelledIds = new Set<number>();
+const cancelBuffers = new Map<number, Int32Array>();
 
-self.onmessage = (event: MessageEvent) => {
-  const { type, id, payload } = event.data;
+function makeCancelChecker(id: number, sharedBuffer?: SharedArrayBuffer | null): {
+  shouldCancel: () => boolean;
+  cancelBuffer?: Int32Array;
+} {
+  let view: Int32Array | undefined;
+  if (sharedBuffer) {
+    try {
+      view = new Int32Array(sharedBuffer);
+      cancelBuffers.set(id, view);
+    } catch {
+      view = undefined;
+    }
+  }
+  return {
+    cancelBuffer: view,
+    shouldCancel: () => {
+      if (cancelledIds.has(id)) return true;
+      if (view && Atomics.load(view, 0) !== 0) return true;
+      return false;
+    },
+  };
+}
+
+self.onmessage = async (event: MessageEvent) => {
+  const { type, id, payload } = event.data ?? {};
 
   if (type === 'cancel') {
-    isCancelled = true;
+    if (typeof id === 'number') {
+      cancelledIds.add(id);
+      const buf = cancelBuffers.get(id);
+      if (buf) {
+        try {
+          Atomics.store(buf, 0, 1);
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      for (const activeId of cancelBuffers.keys()) {
+        cancelledIds.add(activeId);
+        const buf = cancelBuffers.get(activeId);
+        if (buf) {
+          try {
+            Atomics.store(buf, 0, 1);
+          } catch {
+            // ignore
+          }
+        }
+      }
+      cancelledIds.add(-1);
+    }
     return;
   }
 
-  isCancelled = false;
+  cancelledIds.delete(id);
+  cancelledIds.delete(-1);
+
+  const { shouldCancel, cancelBuffer } = makeCancelChecker(id, payload?.cancelSharedBuffer);
 
   try {
     if (type === 'solve_lp') {
-      const result = runLpSolvePipeline(payload.problem, Boolean(payload.presolve));
+      const result = await runLpSolvePipelineAsync(
+        payload.problem,
+        Boolean(payload.presolve),
+        {
+          ...(payload.options ?? {}),
+          shouldCancel: () => cancelledIds.has(-1) || shouldCancel(),
+          cancelBuffer,
+        }
+      );
 
       self.postMessage({
         id,
@@ -34,10 +95,18 @@ self.onmessage = (event: MessageEvent) => {
     }
 
     if (type === 'solve_bb') {
-      const result = runBbSolvePipeline(payload.problem, Boolean(payload.presolve), {
-        ...payload.options,
-        shouldCancel: () => isCancelled,
-      });
+      const result = await runBbSolvePipelineAsync(
+        payload.problem,
+        Boolean(payload.presolve),
+        {
+          ...(payload.options ?? {}),
+          shouldCancel: () => cancelledIds.has(-1) || shouldCancel(),
+          cancelBuffer,
+          onProgress: (progress) => {
+            self.postMessage({ id, type: 'progress', data: progress });
+          },
+        }
+      );
 
       self.postMessage({
         id,
@@ -51,9 +120,10 @@ self.onmessage = (event: MessageEvent) => {
     }
 
     if (type === 'run_simulation') {
-      const summary = runSimulationBatch({
+      const summary = await runSimulationBatchAsync({
         ...payload,
-        shouldCancel: () => isCancelled,
+        shouldCancel: () => cancelledIds.has(-1) || shouldCancel(),
+        cancelBuffer,
         onProgress: (completed, total) => {
           self.postMessage({ id, type: 'progress', data: { completed, total } });
         },
@@ -67,6 +137,26 @@ self.onmessage = (event: MessageEvent) => {
       return;
     }
 
+    if (type === 'run_simulation_chunk') {
+      const chunkRes = await evaluateScenarioChunkAsync(payload.items, {
+        param: payload.param,
+        baseProblem: payload.baseProblem,
+        solverSettings: payload.solverSettings,
+        shouldCancel: () => cancelledIds.has(-1) || shouldCancel(),
+        cancelBuffer,
+        onProgress: (completed, total) => {
+          self.postMessage({ id, type: 'progress', data: { completed, total } });
+        },
+      });
+
+      self.postMessage({
+        id,
+        type: 'result',
+        data: chunkRes,
+      });
+      return;
+    }
+
     throw new Error(`Unknown worker message type: ${type}`);
   } catch (err: any) {
     self.postMessage({
@@ -74,6 +164,9 @@ self.onmessage = (event: MessageEvent) => {
       type: 'error',
       error: err?.message || 'Worker computation error',
     });
+  } finally {
+    cancelledIds.delete(id);
+    cancelBuffers.delete(id);
   }
 };
 
@@ -84,6 +177,8 @@ function toSerializablePresolve(presolve: any) {
     stats: presolve.stats,
     originalVarsCount: presolve.originalVarsCount,
     activeVarIndices: presolve.activeVarIndices,
+    activeConstraintIndices: presolve.activeConstraintIndices,
+    singletonBoundSources: presolve.singletonBoundSources,
     fixedVarEntries: presolve.fixedVarEntries,
     isInfeasible: presolve.isInfeasible,
     infeasibilityReason: presolve.infeasibilityReason,

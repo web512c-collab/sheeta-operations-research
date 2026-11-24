@@ -1,51 +1,59 @@
 /**
  * Sheeta Operations Research - Capacitor Platform Adapter (Android)
- * Implements Android bridges, native storage mirroring (to protect against
- * Android WebView storage evictions), hardware back button handling,
- * native share sheet, and haptic feedback.
+ * Implements Android bridges, native storage mirroring, hardware back button handling,
+ * real binary .pdf generation + Filesystem/Share export, and haptic feedback.
  */
 
 import { Capacitor } from '@capacitor/core';
+import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
+import { Preferences } from '@capacitor/preferences';
+import { Share } from '@capacitor/share';
+import type { ReportData } from '../engines/reportBuilder';
+import { renderReportToPdfBytes, uint8ToBase64 } from './pdfGenerator';
 import {
-  PlatformAdapter,
-  PlatformType,
-  StorageAdapter,
-  FileAdapter,
   ClipboardAdapter,
-  PDFAdapter,
   DeviceAdapter,
-  NetworkAdapter,
+  FileAdapter,
   FileExportOptions,
   FileImportOptions,
+  NetworkAdapter,
+  PDFAdapter,
+  PlatformAdapter,
+  PlatformType,
   ShareOptions,
+  StorageAdapter,
 } from './types';
-import { generatePrintableHtml } from './pdfGenerator';
+
+function sanitizeFileSlug(raw: string): string {
+  const cleaned = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u0600-\u06FF]+/gi, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || 'sheeta_or';
+}
 
 const capacitorFileAdapter: FileAdapter = {
   async exportFile(options: FileExportOptions): Promise<{ success: boolean; path?: string }> {
     try {
-      const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
-
-      // Try native Filesystem & Share if available
-      if (plugins?.Filesystem && plugins?.Share) {
-        const fileName = options.filename;
-        const writeRes = await plugins.Filesystem.writeFile({
-          path: fileName,
+      if (Capacitor.isNativePlatform()) {
+        const writeRes = await Filesystem.writeFile({
+          path: options.filename,
           data: options.content,
-          directory: 'CACHE',
-          encoding: 'utf8',
+          directory: Directory.Cache,
+          encoding: Encoding.UTF8,
         });
 
-        await plugins.Share.share({
-          title: fileName,
+        await Share.share({
+          title: options.filename,
           url: writeRes.uri,
-          dialogTitle: `Export ${fileName}`,
+          files: [writeRes.uri],
+          dialogTitle: options.filename,
         });
         return { success: true, path: writeRes.uri };
       }
 
-      // Fallback to browser Blob download
-      const blob = new Blob([options.content], { type: options.mimeType || 'text/plain' });
+      const blob = new Blob([options.content], { type: options.mimeType || 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -68,7 +76,7 @@ const capacitorFileAdapter: FileAdapter = {
       if (options.accept) {
         input.accept = options.accept;
       } else if (options.extensions) {
-        input.accept = options.extensions.map((e) => `.${e}`).join(',');
+        input.accept = options.extensions.map((e) => (e.startsWith('.') ? e : `.${e}`)).join(',');
       }
 
       input.onchange = async () => {
@@ -91,10 +99,9 @@ const capacitorFileAdapter: FileAdapter = {
   },
 
   async share(options: ShareOptions): Promise<boolean> {
-    const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
-    if (plugins?.Share) {
+    if (Capacitor.isNativePlatform()) {
       try {
-        await plugins.Share.share({
+        await Share.share({
           title: options.title,
           text: options.text,
           url: options.url,
@@ -106,7 +113,7 @@ const capacitorFileAdapter: FileAdapter = {
       }
     }
 
-    if (navigator.share) {
+    if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share(options);
         return true;
@@ -128,9 +135,8 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
   readonly storage: StorageAdapter = {
     async getItem(key: string): Promise<string | null> {
       try {
-        const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
-        if (plugins?.Preferences) {
-          const res = await plugins.Preferences.get({ key });
+        if (Capacitor.isNativePlatform()) {
+          const res = await Preferences.get({ key });
           return res.value ?? localStorage.getItem(key);
         }
         return localStorage.getItem(key);
@@ -142,9 +148,8 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
     async setItem(key: string, value: string): Promise<void> {
       try {
         localStorage.setItem(key, value);
-        const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
-        if (plugins?.Preferences) {
-          await plugins.Preferences.set({ key, value });
+        if (Capacitor.isNativePlatform()) {
+          await Preferences.set({ key, value });
         }
       } catch {
         // storage quota
@@ -154,9 +159,8 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
     async removeItem(key: string): Promise<void> {
       try {
         localStorage.removeItem(key);
-        const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
-        if (plugins?.Preferences) {
-          await plugins.Preferences.remove({ key });
+        if (Capacitor.isNativePlatform()) {
+          await Preferences.remove({ key });
         }
       } catch {
         // ignore
@@ -166,9 +170,8 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
     async clear(): Promise<void> {
       try {
         localStorage.clear();
-        const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
-        if (plugins?.Preferences) {
-          await plugins.Preferences.clear();
+        if (Capacitor.isNativePlatform()) {
+          await Preferences.clear();
         }
       } catch {
         // ignore
@@ -177,13 +180,11 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
 
     async syncNativeMirror(data: Record<string, string>): Promise<void> {
       try {
-        const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
-        if (plugins?.Preferences) {
+        if (Capacitor.isNativePlatform()) {
           for (const [key, value] of Object.entries(data)) {
-            await plugins.Preferences.set({ key: `native_mirror_${key}`, value });
+            await Preferences.set({ key: `native_mirror_${key}`, value });
           }
         }
-        // Also keep in localStorage as double backup
         for (const [key, value] of Object.entries(data)) {
           localStorage.setItem(`native_mirror_${key}`, value);
         }
@@ -194,14 +195,15 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
 
     async restoreFromNativeMirror(): Promise<Record<string, string> | null> {
       try {
-        const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
-        if (plugins?.Preferences) {
-          const keysRes = await plugins.Preferences.keys();
-          const mirrorKeys: string[] = keysRes.keys.filter((k: string) => k.startsWith('native_mirror_'));
+        if (Capacitor.isNativePlatform()) {
+          const keysRes = await Preferences.keys();
+          const mirrorKeys: string[] = keysRes.keys.filter((k: string) =>
+            k.startsWith('native_mirror_')
+          );
           if (mirrorKeys.length > 0) {
             const restored: Record<string, string> = {};
             for (const key of mirrorKeys) {
-              const res = await plugins.Preferences.get({ key });
+              const res = await Preferences.get({ key });
               if (res.value) {
                 restored[key.replace('native_mirror_', '')] = res.value;
               }
@@ -210,7 +212,6 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
           }
         }
 
-        // Fallback to localStorage mirror
         const fallbackMirror: Record<string, string> = {};
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
@@ -270,20 +271,54 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
       }
     },
 
-    async exportPdf(title: string, htmlContent: string, isRtl: boolean = false): Promise<{ success: boolean }> {
+    async exportPdf(
+      title: string,
+      htmlContent: string,
+      isRtl: boolean = false,
+      structuredReport?: ReportData
+    ): Promise<{ success: boolean }> {
       try {
-        const fullDoc = generatePrintableHtml(title, htmlContent, isRtl);
-        const fileName = `${title.toLowerCase().replace(/[^a-z0-9]/gi, '_')}_report.html`;
-        
-        // On mobile, export formatted printable HTML and trigger native share sheet
-        const result = await capacitorFileAdapter.exportFile({
-          filename: fileName,
-          content: fullDoc,
-          mimeType: 'text/html;charset=utf-8',
+        const pdfBytes = await renderReportToPdfBytes({
+          title,
+          htmlContent,
+          reportData: structuredReport,
+          isRtl,
         });
-        return { success: result.success };
+        const fileName = `${sanitizeFileSlug(title)}_report.pdf`;
+
+        if (Capacitor.isNativePlatform()) {
+          const base64Pdf = uint8ToBase64(pdfBytes);
+          // Omit encoding so Capacitor Filesystem writes raw decoded binary PDF bytes
+          const writeRes = await Filesystem.writeFile({
+            path: fileName,
+            data: base64Pdf,
+            directory: Directory.Cache,
+          });
+
+          await Share.share({
+            title,
+            url: writeRes.uri,
+            files: [writeRes.uri],
+            dialogTitle: title,
+          });
+          return { success: true };
+        }
+
+        // Web fallback inside Capacitor context still downloads real application/pdf bytes
+        const copyBytes = new Uint8Array(pdfBytes.byteLength);
+        copyBytes.set(pdfBytes);
+        const blob = new Blob([copyBytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return { success: true };
       } catch (err) {
-        console.error('Capacitor PDF generation error:', err);
+        console.error('Capacitor real PDF export error:', err);
         return { success: false };
       }
     },
@@ -390,9 +425,12 @@ export class CapacitorPlatformAdapter implements PlatformAdapter {
     subscribe(callback: (isOnline: boolean) => void): () => void {
       const plugins = (Capacitor as unknown as { Plugins?: Record<string, any> }).Plugins;
       if (plugins?.Network) {
-        let handlePromise = plugins.Network.addListener('networkStatusChange', (status: { connected: boolean }) => {
-          callback(status.connected);
-        });
+        const handlePromise = plugins.Network.addListener(
+          'networkStatusChange',
+          (status: { connected: boolean }) => {
+            callback(status.connected);
+          }
+        );
         return () => {
           handlePromise.then((h: { remove: () => void }) => h.remove());
         };

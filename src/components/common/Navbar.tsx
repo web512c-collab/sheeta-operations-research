@@ -52,13 +52,13 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-40 w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between gap-6 h-16">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4 lg:gap-6 h-16 min-w-0">
         {/* Zone 1: Brand Wordmark (Single text element, no pill clutter) */}
-        <div className="flex items-center gap-3 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 dark:bg-indigo-500 flex items-center justify-center text-white font-black text-sm tracking-tighter shadow-xs">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 md:flex-initial md:shrink-0">
+          <div className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 rounded-lg bg-indigo-600 dark:bg-indigo-500 flex items-center justify-center text-white font-black text-sm tracking-tighter shadow-xs">
             Σ
           </div>
-          <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 whitespace-nowrap">
+          <span className="text-sm sm:text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate md:whitespace-nowrap">
             {t.appName}
           </span>
         </div>
@@ -90,7 +90,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </nav>
 
         {/* Zone 3: Utility Controls & Actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* PWA Install Button (shows when installable) */}
           <PWAInstallButton />
 
@@ -99,7 +99,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             onClick={toggleLanguage}
             title={language === 'en' ? 'التحويل إلى العربية (RTL)' : 'Switch to English (LTR)'}
             aria-label="Toggle Language"
-            className="px-2.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 rounded-lg transition-colors flex items-center gap-1.5"
+            className="px-2 sm:px-2.5 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Globe className="w-3.5 h-3.5" />
             <span className="uppercase">{language === 'en' ? 'عربي' : 'EN'}</span>

@@ -1,6 +1,6 @@
 # Sheeta Operations Research
 
-> **Industrial-Grade Operations Research & Simulation Suite**  
+> **Quantitative Operations Research & Simulation Suite (v1.1.0)**  
 > Complete cross-platform architecture running 100% offline from **ONE shared codebase** across 4 targets: Web/PWA, Windows, Linux, and Android.
 
 ---
@@ -17,12 +17,10 @@ Install Sheeta Operations Research to run full-screen, standalone, and completel
 
 - **Android (Chrome, Edge, Samsung Internet):**
   - Tap the **"Install App"** button in the top navigation bar, or open the browser menu (`⋮`) and select **"Add to Home screen"** / **"Install application"**.
-- **Safari (iPhone, iPad, Mac):**
-  - The web version works in any modern browser, including Safari on iPhone and Mac, as a PWA. Tap **Share** and select **"Add to Home Screen"** (or **File → Add to Dock** on Mac) to install.
-- **Desktop (Chrome, Edge, Brave, Opera):**
+- **Desktop (Chrome, Edge, Brave, Firefox, Opera on Windows & Linux):**
   - Click the **Install** icon in your browser's URL address bar (or click the **"Install App"** button in the top bar).
 - **100% Offline Capability:**
-  - The Service Worker automatically precaches all mathematical engines and assets. Once installed or visited, the entire suite functions without an internet connection.
+  - The Service Worker automatically precaches all mathematical engines, bundled fonts (`@fontsource`), and assets. Once installed or visited, the entire suite functions without an internet connection.
 
 ---
 
@@ -46,7 +44,7 @@ All device interactions pass through the typed `PlatformAdapter` interface:
 1. **Storage & Native Mirroring (`storage`)**:
    - Primary: Fast IndexedDB.
    - Secondary: `localStorage` fallback.
-   - **Android WebView Eviction Safeguard**: On Android, WebView databases can be evicted by the operating system under low-disk pressure. The platform adapter mirrors workspace problems, settings, and language to native persistent storage (`Capacitor Preferences`) with an automatic startup restore routine.
+   - **Android WebView Eviction Safeguard**: On Android, WebView databases can be evicted by the operating system under low-disk pressure. The platform adapter mirrors workspace problems, settings, and language to native persistent storage (`Capacitor Preferences`) with an automatic startup restore routine and strict JSON backup schema validation (`version` + per-module payload checks).
 2. **File Export & Import (`file`)**:
    - **Web / PWA**: Native `Blob` URL downloads and synthetic `<input type="file">`.
    - **Capacitor (Android)**: Native filesystem cache with system share sheet integration (`Filesystem` + `Share`).
@@ -54,8 +52,9 @@ All device interactions pass through the typed `PlatformAdapter` interface:
    - **Electron**: IPC bridge to `dialog.showSaveDialog` and `dialog.showOpenDialog`.
 3. **Clipboard (`clipboard`)**:
    - `navigator.clipboard` with multi-tier fallback to native plugin clipboard and legacy `document.execCommand`.
-4. **Print & Executive PDF (`pdf`)**:
-   - Pure client-side printable HTML generator supporting bidirectional **Arabic (RTL)** and **English (LTR)** typography, font fallbacks, page break control, and tabular formatting.
+4. **Genuine Binary PDF & Print (`pdf`)**:
+   - **Native / Desktop / Mobile (`Capacitor`, `Tauri`, `Electron`)**: Renders real multi-page binary `%PDF-1.4` files with embedded high-DPI JPEG page images using offline Canvas 2D typography supporting bidirectional **Arabic (RTL)** and **English (LTR)** text, and exports `.pdf` directly (Android opens the system Share Sheet with `application/pdf`).
+   - **Web / PWA**: Supports both printable HTML (`window.print()`) and direct binary `.pdf` generation.
 5. **Hardware & Lifecycle (`device`)**:
    - Haptic feedback (light, medium, heavy, success, error) mapped to native vibration APIs.
    - Status bar styling and theme synchronization.
@@ -70,10 +69,13 @@ All device interactions pass through the typed `PlatformAdapter` interface:
 # Start local development server (port 3000)
 npm run dev
 
-# Run unit tests
+# Run unit tests (solvers, platform layer, and v1.1.0 audit regression suite)
 npm test
 
-# Build production static bundle and PWA service worker
+# TypeScript type-check
+npm run lint
+
+# Build production static bundle + verify dist/ integrity
 npm run build:pwa
 
 # Preview built production distribution
@@ -81,7 +83,7 @@ npm run preview
 ```
 
 ### 2. Android (APK & App Bundle)
-**Prerequisites:** Node.js 20+, JDK 21, Android Studio & Android SDK (API 36).
+**Prerequisites:** Node.js 22+, JDK 21, Android Studio & Android SDK (API 36).
 ```bash
 # Build web assets and sync to native Android project
 npm run android:build
@@ -115,35 +117,37 @@ npm run electron:build
 
 ---
 
-## 🧮 Operations Research Solvers Included
+## 🧮 Operations Research Solvers & Scale Guidance
 
-- **Two-Phase Simplex**:
+- **Two-Phase Simplex & Sparse CSR**:
   - Phase I: Artificial variable minimization for feasibility testing.
-  - Phase II: Optimal basis pursuit with Bland's Rule anti-cycling.
-  - Multi-pass presolve: Singleton row detection, duplicate elimination, bound tightening.
-  - 2D Graphical Method: Feasible polygon rendering, level curves, corner evaluation.
+  - Phase II: Optimal basis pursuit with Bland's Rule anti-cycling, cooperative cancellation (`SharedArrayBuffer` / `Atomics`), and exact shadow-price (dual variable) & slack/surplus extraction via basis inverse (`B⁻¹`).
+  - **Numerical Scale & Dense Tableau Guidance**: Comfortable interactive solve scale in client JS memory is up to ~100–250 variables/constraints. When `sparseEnabled` is on and matrix density falls below `30%`, `CsrMatrix` sparse row storage accelerates multi-pass presolve scans and pivot-column elimination while preserving dense `B⁻¹` accuracy for duals.
 - **Integer & Binary Programming (Branch and Bound)**:
-  - Supports Continuous, Integer, and Binary ($0/1$) decision variables.
-  - LP relaxation bounding, depth/node safety caps, best-bound pruning.
+  - Supports Continuous, Integer, and Binary ($0/1$) decision variables with user-configured `maxNodes`, `maxDepth` (including `0` for root-only), `timeoutSeconds`, `eps`, `pivotEps`, and `branchingStrategy`.
+  - Reports honest termination statuses (`optimal`, `depth_limit_reached`, `node_limit_reached`, `time_limit_reached`, `feasible_not_proven`, `cancelled`, `infeasible`, `unbounded`), tracking `bestBound` and `integralityGapPercent` transparently.
 - **Transportation & Assignment**:
-  - Initial Basic Feasible Solution: Vogel's Approximation Method (VAM), Northwest Corner, Least Cost.
-  - Optimality: Modified Distribution Method (MODI / $u-v$ multipliers) with loop tracing.
+  - Initial Basic Feasible Solution: Vogel's Approximation Method (VAM), Northwest Corner, Least Cost + MODI optimality.
   - Hungarian algorithm for optimal 1-to-1 matching.
 - **Project Management (PERT / CPM)**:
-  - Forward pass (Early Start / Early Finish), backward pass (Late Start / Late Finish).
-  - Total Slack and Free Slack computation.
-  - Critical path identification.
+  - Strict graph & duration validation (`EMPTY_NETWORK`, `EMPTY_ID`, `DUPLICATE_ID`, `SELF_DEPENDENCY`, `UNKNOWN_PREDECESSOR`, `INVALID_DURATION`, `INVALID_THREE_POINT`, `CYCLE_DETECTED`).
+  - Forward/backward pass scheduling, slack analysis, and enumeration of all distinct critical paths (with overflow indicator if capped).
 - **Queuing & Inventory (EOQ)**:
-  - Queuing: $M/M/1$, $M/M/c$, $M/G/1$ models ($\rho$, $L_q$, $L$, $W_q$, $W$, $P_0$).
-  - Inventory: Wilson Economic Order Quantity (EOQ), reorder point, total holding/ordering costs.
+  - Queuing: $M/M/1$, $M/M/c$, $M/M/1/K$ models ($\rho$, $L_q$, $L$, $W_q$, $W$, $P_0$, $P_K$) with instability detection when $\rho \ge 1$.
+  - Inventory: Classical EOQ, planned backorders, EPQ, and quantity discounts.
 - **Monte Carlo Scenario Simulation**:
-  - Gaussian, Uniform, and Triangular stochastic sampling.
-  - Parameter sweeps and sensitivity analysis.
+  - Gaussian, Uniform, and Triangular stochastic sampling + parameter sweeps dispatched across a bounded Web Worker pool (`getRecommendedPoolSize()`) with cooperative cancellation.
 
 ---
 
-## 🔒 Security & Offline Guarantee
+## 🔒 Security, Offline Guarantee & Android Permissions
 
-- **Strict Content Security Policy (CSP)**: Blocks unverified third-party scripts while allowing local Web Workers and Blobs.
-- **Zero Remote Dependencies**: Fonts and icons fall back gracefully to local system typography (`Cairo` / `Noto Sans Arabic` / `Segoe UI` for Arabic; `Plus Jakarta Sans` / `system-ui` for Latin).
-- **100% Offline Capable**: All linear programs and simulations compute locally in the browser/client without sending data to any external server.
+- **Strict Content Security Policy (CSP)**: `connect-src 'self' data: blob:` blocks remote network requests while allowing local Web Workers and Blobs.
+- **Zero Remote Font Dependencies**: Bundled `@fontsource/cairo`, `@fontsource/plus-jakarta-sans`, and `@fontsource/jetbrains-mono` ensure identical offline typography on WebView and Desktop.
+- **Android `INTERNET` Permission Rationale**: `android.permission.INTERNET` and `android.permission.ACCESS_NETWORK_STATE` remain declared in `android/app/src/main/AndroidManifest.xml` solely because Capacitor serves the bundled local assets through Android WebView's local origin (`https://localhost`) and monitors offline/online state (`Network` listener). The application performs **zero external HTTP requests, zero analytics, and zero telemetry**.
+
+### 📱 Android Manual Device / Emulator QA Checklist (v1.1.0)
+- [ ] Export Executive Report to PDF on device and verify a valid binary `.pdf` file opens in a PDF viewer and shares cleanly via the Android Share Sheet.
+- [ ] Set Branch & Bound Max Depth to `1` on the Multi-Plant Benchmark IP, solve, and verify an amber warning status (`Depth Limit Reached`) is shown alongside `bestBound` and Constraint Slacks & Shadow Prices.
+- [ ] Start a long Branch & Bound or 500-scenario simulation run and tap **Cancel Run** mid-flight; verify clean cancellation without UI freeze.
+- [ ] Toggle Airplane Mode, reload the app, verify Arabic/English fonts render offline, and confirm settings & saved problems persist across app restart.

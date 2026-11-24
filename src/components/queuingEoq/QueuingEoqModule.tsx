@@ -38,18 +38,17 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
 
   const [activeTab, setActiveTab] = useState<'queuing' | 'eoq'>(preferredTab || 'queuing');
 
-  // Queuing State
   const [queuingInputs, setQueuingInputs] = useState<QueuingInputs>(
     initialQueuing || SAMPLE_QUEUING
   );
   const [queuingResult, setQueuingResult] = useState<QueuingResult | null>(null);
 
-  // EOQ State
   const [eoqInputs, setEoqInputs] = useState<EoqInputs>(initialEoq || SAMPLE_EOQ);
   const [eoqResult, setEoqResult] = useState<EoqResult | null>(null);
 
   const [status, setStatus] = useState<RunStatus>('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [errorKind, setErrorKind] = useState<'queuing' | 'eoq' | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const lastSyncRef = useRef<{
     queuing?: QueuingInputs;
     eoq?: EoqInputs;
@@ -87,7 +86,8 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
       setActiveTab(preferredTab);
     }
     setStatus('idle');
-    setStatusMessage('');
+    setErrorKind(null);
+    setErrorDetail(null);
   }, [initialQueuing, initialEoq, preferredTab, syncVersion]);
 
   const updateQueuing = (updated: QueuingInputs) => {
@@ -102,48 +102,60 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
 
   const handleSolveQueuing = () => {
     setStatus('running');
-    setStatusMessage(t.status.running);
+    setErrorKind(null);
+    setErrorDetail(null);
 
     setTimeout(() => {
       try {
         const res = solveQueuing(queuingInputs);
         setQueuingResult(res);
-        if (res.rho >= 1) {
+        if (res.rho >= 1 && queuingInputs.model !== 'mm1k') {
           setStatus('warning');
-          setStatusMessage('System is unstable: arrival rate λ exceeds total service capacity cμ (ρ >= 1).');
         } else {
           setStatus('completed');
-          setStatusMessage(t.status.optimal);
         }
         if (onUpdateActiveProblem) {
           onUpdateActiveProblem(queuingInputs, res, 'queuing');
         }
       } catch (err: any) {
         setStatus('error');
-        setStatusMessage(err?.message || 'Error solving queuing model');
+        setErrorKind('queuing');
+        setErrorDetail(err?.message || '');
       }
     }, 50);
   };
 
   const handleSolveEoq = () => {
     setStatus('running');
-    setStatusMessage(t.status.running);
+    setErrorKind(null);
+    setErrorDetail(null);
 
     setTimeout(() => {
       try {
         const res = solveEoq(eoqInputs);
         setEoqResult(res);
         setStatus('completed');
-        setStatusMessage(t.status.optimal);
         if (onUpdateActiveProblem) {
           onUpdateActiveProblem(eoqInputs, res, 'eoq');
         }
       } catch (err: any) {
         setStatus('error');
-        setStatusMessage(err?.message || 'Error solving EOQ model');
+        setErrorKind('eoq');
+        setErrorDetail(err?.message || '');
       }
     }, 50);
   };
+
+  const statusMessage =
+    status === 'running'
+      ? t.status.running
+      : status === 'warning'
+      ? t.queuingEoq.unstableWarning
+      : status === 'completed'
+      ? t.status.optimal
+      : status === 'error'
+      ? errorDetail || (errorKind === 'eoq' ? t.queuingEoq.eoqSolveError : t.queuingEoq.queuingSolveError)
+      : '';
 
   return (
     <div className="space-y-6">
@@ -155,13 +167,14 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             {activeTab === 'queuing'
-              ? 'Analytical performance measures for service systems with single and multiple servers.'
-              : 'Economic Order Quantity, Production Quantity, planned shortages, and quantity discounts.'}
+              ? t.queuingEoq.queuingSubtitle
+              : t.queuingEoq.eoqSubtitle}
           </p>
         </div>
 
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
           <button
+            type="button"
             onClick={() => {
               setActiveTab('queuing');
               if (onUpdateActiveProblem) onUpdateActiveProblem(queuingInputs, undefined, 'queuing');
@@ -176,6 +189,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
             <span>{t.queuingEoq.queuingTab}</span>
           </button>
           <button
+            type="button"
             onClick={() => {
               setActiveTab('eoq');
               if (onUpdateActiveProblem) onUpdateActiveProblem(eoqInputs, undefined, 'eoq');
@@ -204,6 +218,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   {t.queuingEoq.modelType}
                 </label>
                 <select
+                  aria-label={t.queuingEoq.modelType}
                   value={queuingInputs.model}
                   onChange={(e) =>
                     updateQueuing({
@@ -226,6 +241,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                 <input
                   type="number"
                   step="any"
+                  aria-label={t.queuingEoq.arrivalRate}
                   value={queuingInputs.arrivalRate}
                   onChange={(e) =>
                     updateQueuing({
@@ -244,6 +260,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                 <input
                   type="number"
                   step="any"
+                  aria-label={t.queuingEoq.serviceRate}
                   value={queuingInputs.serviceRate}
                   onChange={(e) =>
                     updateQueuing({
@@ -263,6 +280,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   <input
                     type="number"
                     min="1"
+                    aria-label={t.queuingEoq.serversCount}
                     value={queuingInputs.servers}
                     onChange={(e) =>
                       updateQueuing({
@@ -283,6 +301,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   <input
                     type="number"
                     min="1"
+                    aria-label={t.queuingEoq.capacityK}
                     value={queuingInputs.capacity}
                     onChange={(e) =>
                       updateQueuing({
@@ -297,20 +316,20 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
             </div>
 
             <button
+              type="button"
               onClick={handleSolveQueuing}
               className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-sm flex items-center gap-2"
             >
               <Play className="w-4 h-4 fill-current" />
-              <span>Compute Queuing Measures</span>
+              <span>{t.queuingEoq.computeQueuingBtn}</span>
             </button>
           </div>
 
-          {/* Queuing Results Display */}
           {queuingResult && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                 <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
-                  <span className="text-xs text-slate-500">{t.queuingEoq.utilization} (ρ)</span>
+                  <span className="text-xs text-slate-500">{t.queuingEoq.utilization}</span>
                   <p className="font-mono text-xl font-bold text-indigo-600 dark:text-indigo-400 mt-1 tabular-nums">
                     {(queuingResult.rho * 100).toFixed(1)}%
                   </p>
@@ -352,11 +371,10 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                 </div>
               </div>
 
-              {/* State Probabilities Histogram */}
               {queuingResult.stateProbabilities.length > 0 && (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-xs">
                   <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-4">
-                    State Probability Distribution (Pₙ: Probability of n customers in system)
+                    {t.queuingEoq.stateDistributionTitle}
                   </h3>
                   <div className="flex items-end gap-2 h-40 pt-6 px-2 border-b border-slate-200 dark:border-slate-800">
                     {queuingResult.stateProbabilities.map((sp) => {
@@ -394,6 +412,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                   {t.queuingEoq.eoqModel}
                 </label>
                 <select
+                  aria-label={t.queuingEoq.eoqModel}
                   value={eoqInputs.model}
                   onChange={(e) =>
                     updateEoq({
@@ -412,10 +431,11 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
 
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  {t.queuingEoq.annualDemand} (D)
+                  {t.queuingEoq.annualDemand}
                 </label>
                 <input
                   type="number"
+                  aria-label={t.queuingEoq.annualDemand}
                   value={eoqInputs.annualDemand}
                   onChange={(e) =>
                     updateEoq({
@@ -429,10 +449,11 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
 
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  {t.queuingEoq.orderCost} (S)
+                  {t.queuingEoq.orderCost}
                 </label>
                 <input
                   type="number"
+                  aria-label={t.queuingEoq.orderCost}
                   value={eoqInputs.orderCost}
                   onChange={(e) =>
                     updateEoq({
@@ -446,10 +467,11 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
 
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  {t.queuingEoq.holdingCost} (H)
+                  {t.queuingEoq.holdingCost}
                 </label>
                 <input
                   type="number"
+                  aria-label={t.queuingEoq.holdingCost}
                   value={eoqInputs.holdingCost}
                   onChange={(e) =>
                     updateEoq({
@@ -463,10 +485,11 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
 
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                  {t.queuingEoq.unitCost} (C)
+                  {t.queuingEoq.unitCost}
                 </label>
                 <input
                   type="number"
+                  aria-label={t.queuingEoq.unitCost}
                   value={eoqInputs.unitCost}
                   onChange={(e) =>
                     updateEoq({
@@ -481,10 +504,11 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
               {eoqInputs.model === 'backorder' && (
                 <div>
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                    {t.queuingEoq.backorderCost} (B)
+                    {t.queuingEoq.backorderCost}
                   </label>
                   <input
                     type="number"
+                    aria-label={t.queuingEoq.backorderCost}
                     value={eoqInputs.backorderCost ?? 10}
                     onChange={(e) =>
                       updateEoq({
@@ -500,10 +524,11 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
               {eoqInputs.model === 'epq' && (
                 <div>
                   <label className="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                    {t.queuingEoq.productionRate} (P)
+                    {t.queuingEoq.productionRate}
                   </label>
                   <input
                     type="number"
+                    aria-label={t.queuingEoq.productionRate}
                     value={eoqInputs.productionRate ?? 30000}
                     onChange={(e) =>
                       updateEoq({
@@ -522,6 +547,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                 </label>
                 <input
                   type="number"
+                  aria-label={t.queuingEoq.leadTime}
                   value={eoqInputs.leadTimeDays ?? 7}
                   onChange={(e) =>
                     updateEoq({
@@ -535,23 +561,23 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
             </div>
 
             <button
+              type="button"
               onClick={handleSolveEoq}
               className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-sm flex items-center gap-2"
             >
               <Play className="w-4 h-4 fill-current" />
-              <span>Compute Optimal Lot Size (EOQ)</span>
+              <span>{t.queuingEoq.computeEoqBtn}</span>
             </button>
           </div>
 
-          {/* EOQ Results Display */}
           {eoqResult && (
             <div className="space-y-6">
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                 <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
-                  <span className="text-xs text-slate-500">{t.queuingEoq.optimalQty} (Q*)</span>
+                  <span className="text-xs text-slate-500">{t.queuingEoq.optimalQty}</span>
                   <p className="font-mono text-xl font-bold text-indigo-600 dark:text-indigo-400 mt-1 tabular-nums">
                     {eoqResult.optimalQty.toFixed(0)}{' '}
-                    <span className="text-xs font-normal text-slate-400">units</span>
+                    <span className="text-xs font-normal text-slate-400">{t.queuingEoq.unitsLabel}</span>
                   </p>
                 </div>
 
@@ -572,7 +598,7 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                 <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
                   <span className="text-xs text-slate-500">{t.queuingEoq.cycleTime}</span>
                   <p className="font-mono text-xl font-bold text-slate-900 dark:text-slate-100 mt-1 tabular-nums">
-                    {eoqResult.cycleTimeDays.toFixed(1)} d
+                    {eoqResult.cycleTimeDays.toFixed(1)} {t.queuingEoq.daysShort}
                   </p>
                 </div>
 
@@ -591,7 +617,6 @@ export const QueuingEoqModule: React.FC<QueuingEoqModuleProps> = ({
                 </div>
               </div>
 
-              {/* Cost Breakdown */}
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-xs">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-4">
                   {t.queuingEoq.costBreakdown}

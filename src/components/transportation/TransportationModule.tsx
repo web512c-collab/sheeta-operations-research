@@ -62,7 +62,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
   const [assignResult, setAssignResult] = useState<AssignmentResult | null>(null);
 
   const [status, setStatus] = useState<RunStatus>('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const lastSyncRef = useRef<{ problem?: TransportationProblem | AssignmentProblem; version?: number }>({
     problem: initialProblem,
     version: syncVersion,
@@ -87,13 +87,12 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
       setTransportResult(null);
     }
     setStatus('idle');
-    setStatusMessage('');
+    setErrorDetail(null);
   }, [initialProblem, syncVersion]);
 
-  // Handle Solve
   const handleSolve = () => {
     setStatus('running');
-    setStatusMessage(t.status.running);
+    setErrorDetail(null);
 
     setTimeout(() => {
       try {
@@ -101,7 +100,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
           const res = solveTransportation(transportProblem);
           setTransportResult(res);
           setStatus('completed');
-          setStatusMessage(t.status.optimal);
+          setErrorDetail(null);
           if (onUpdateActiveProblem) {
             onUpdateActiveProblem(transportProblem, res);
           }
@@ -109,17 +108,26 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
           const res = solveHungarianAssignment(assignProblem);
           setAssignResult(res);
           setStatus('completed');
-          setStatusMessage(t.status.optimal);
+          setErrorDetail(null);
           if (onUpdateActiveProblem) {
             onUpdateActiveProblem(assignProblem, res);
           }
         }
       } catch (err: any) {
         setStatus('error');
-        setStatusMessage(err?.message || 'Error solving problem');
+        setErrorDetail(err?.message || '');
       }
     }, 50);
   };
+
+  const statusMessage =
+    status === 'running'
+      ? t.status.running
+      : status === 'completed'
+      ? t.status.optimal
+      : status === 'error'
+      ? errorDetail || t.transportation.solveError
+      : '';
 
   const commitTransport = (updated: TransportationProblem) => {
     setTransportProblem(updated);
@@ -131,12 +139,11 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
     if (onUpdateActiveProblem) onUpdateActiveProblem(updated);
   };
 
-  // Transportation Source/Destination mutations
   const addSource = () => {
     const nextIdx = transportProblem.sources.length + 1;
     const newSources = [
       ...transportProblem.sources,
-      { id: `s${nextIdx}`, name: `Source ${nextIdx}`, capacity: 100 },
+      { id: `s${nextIdx}`, name: `${t.transportation.sourceName} ${nextIdx}`, capacity: 100 },
     ];
     const newCosts = [
       ...transportProblem.costs,
@@ -156,7 +163,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
     const nextIdx = transportProblem.destinations.length + 1;
     const newDests = [
       ...transportProblem.destinations,
-      { id: `d${nextIdx}`, name: `Market ${nextIdx}`, demand: 100 },
+      { id: `d${nextIdx}`, name: `${t.transportation.destName} ${nextIdx}`, demand: 100 },
     ];
     const newCosts = transportProblem.costs.map((row) => [...row, 10]);
     commitTransport({ ...transportProblem, destinations: newDests, costs: newCosts });
@@ -168,11 +175,10 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
     commitTransport({ ...transportProblem, costs: newCosts });
   };
 
-  // Hungarian mutations
   const addWorkerAndTask = () => {
     const n = assignProblem.workers.length + 1;
-    const newWorkers = [...assignProblem.workers, `Agent ${n}`];
-    const newTasks = [...assignProblem.tasks, `Task ${n}`];
+    const newWorkers = [...assignProblem.workers, `${t.transportation.workers} ${n}`];
+    const newTasks = [...assignProblem.tasks, `${t.transportation.tasks} ${n}`];
     const newCosts = assignProblem.costs.map((row) => [...row, 50]);
     newCosts.push(new Array(newTasks.length).fill(50));
     commitAssign({ ...assignProblem, workers: newWorkers, tasks: newTasks, costs: newCosts });
@@ -206,13 +212,14 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             {mode === 'transportation'
-              ? 'VAM Initial Solution & MODI Optimization for Distribution Networks.'
-              : 'Kuhn-Munkres Hungarian Algorithm for Optimal 1-to-1 Matching.'}
+              ? t.transportation.transportationSubtitle
+              : t.transportation.assignmentSubtitle}
           </p>
         </div>
 
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
           <button
+            type="button"
             onClick={() => {
               setMode('transportation');
               if (onUpdateActiveProblem) onUpdateActiveProblem(transportProblem);
@@ -227,6 +234,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
             <span>{t.transportation.transportationMode}</span>
           </button>
           <button
+            type="button"
             onClick={() => {
               setMode('assignment');
               if (onUpdateActiveProblem) onUpdateActiveProblem(assignProblem);
@@ -255,6 +263,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                   {t.transportation.method}
                 </label>
                 <select
+                  aria-label={t.transportation.method}
                   value={transportProblem.method}
                   onChange={(e) =>
                     setTransportProblem({
@@ -271,11 +280,15 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
               </div>
 
               <div className="text-xs text-slate-500 pt-4">
-                Supply: <strong className="font-mono text-slate-900 dark:text-slate-100">{totalSupply}</strong> | Demand:{' '}
+                {t.transportation.supplyLabel}{' '}
+                <strong className="font-mono text-slate-900 dark:text-slate-100">{totalSupply}</strong> |{' '}
+                {t.transportation.demandLabel}{' '}
                 <strong className="font-mono text-slate-900 dark:text-slate-100">{totalDemand}</strong>
                 {!isBalanced && (
                   <span className="ms-2 text-amber-600 dark:text-amber-400 font-semibold">
-                    (Auto Dummy {totalSupply > totalDemand ? 'Market' : 'Supplier'} will balance)
+                    {totalSupply > totalDemand
+                      ? t.transportation.autoDummyMarket
+                      : t.transportation.autoDummySupplier}
                   </span>
                 )}
               </div>
@@ -283,6 +296,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={addSource}
                 className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5"
               >
@@ -290,6 +304,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                 <span>{t.transportation.addSource}</span>
               </button>
               <button
+                type="button"
                 onClick={addDestination}
                 className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5"
               >
@@ -310,6 +325,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                       <div className="flex flex-col items-center">
                         <input
                           type="text"
+                          aria-label={`${t.transportation.destName} ${dIdx + 1}`}
                           value={d.name}
                           onChange={(e) => {
                             const newDests = transportProblem.destinations.map((dest, idx) =>
@@ -320,9 +336,10 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                           className="w-24 text-center px-1.5 py-0.5 bg-transparent border-b border-dashed border-slate-300 dark:border-slate-600 font-semibold"
                         />
                         <div className="mt-1 flex items-center gap-1">
-                          <span className="text-[10px] text-slate-400">Demand:</span>
+                          <span className="text-[10px] text-slate-400">{t.transportation.demandPrefix}</span>
                           <input
                             type="number"
+                            aria-label={`${t.transportation.demand} ${d.name}`}
                             value={d.demand}
                             onChange={(e) => {
                               const newDemand = parseFloat(e.target.value) || 0;
@@ -338,7 +355,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                     </th>
                   ))}
                   <th className="px-3 py-2 text-center">{t.transportation.capacity}</th>
-                  <th className="px-3 py-2 text-end">Action</th>
+                  <th className="px-3 py-2 text-end">{t.actionCol}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
@@ -347,6 +364,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                     <td className="px-4 py-2.5 font-medium">
                       <input
                         type="text"
+                        aria-label={`${t.transportation.sourceName} ${sIdx + 1}`}
                         value={s.name}
                         onChange={(e) => {
                           const newSources = transportProblem.sources.map((src, idx) =>
@@ -362,6 +380,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                         <div className="inline-flex flex-col items-center">
                           <input
                             type="number"
+                            aria-label={`${s.name} -> ${d.name}`}
                             value={transportProblem.costs[sIdx]?.[dIdx] ?? 0}
                             onChange={(e) => updateCost(sIdx, dIdx, parseFloat(e.target.value) || 0)}
                             className="w-14 text-center px-1.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-mono tabular-nums text-xs"
@@ -372,6 +391,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                     <td className="px-3 py-2 text-center">
                       <input
                         type="number"
+                        aria-label={`${t.transportation.capacity} ${s.name}`}
                         value={s.capacity}
                         onChange={(e) => {
                           const newCapacity = parseFloat(e.target.value) || 0;
@@ -385,8 +405,10 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                     </td>
                     <td className="px-3 py-2 text-end">
                       <button
+                        type="button"
                         onClick={() => removeSource(sIdx)}
                         disabled={transportProblem.sources.length <= 1}
+                        aria-label={`${t.actions.remove} ${s.name}`}
                         className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 rounded transition-colors"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -399,6 +421,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={handleSolve}
             className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-sm flex items-center gap-2"
           >
@@ -419,6 +442,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                 </label>
                 <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
                   <button
+                    type="button"
                     onClick={() => setAssignProblem({ ...assignProblem, sense: 'minimize' })}
                     className={`px-3 py-1 text-xs font-semibold rounded-md ${
                       assignProblem.sense === 'minimize'
@@ -429,6 +453,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                     {t.lp.minimize}
                   </button>
                   <button
+                    type="button"
                     onClick={() => setAssignProblem({ ...assignProblem, sense: 'maximize' })}
                     className={`px-3 py-1 text-xs font-semibold rounded-md ${
                       assignProblem.sense === 'maximize'
@@ -444,18 +469,20 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
 
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={addWorkerAndTask}
                 className="px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg transition-colors flex items-center gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Add Dimension (+1 Worker & Task)</span>
+                <span>{t.transportation.addDimension}</span>
               </button>
               <button
+                type="button"
                 onClick={removeWorkerAndTask}
                 disabled={assignProblem.workers.length <= 2}
                 className="px-3 py-1.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 rounded-lg transition-colors disabled:opacity-40"
               >
-                Remove Dimension (-1)
+                {t.transportation.removeDimension}
               </button>
             </div>
           </div>
@@ -476,10 +503,11 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                 {assignProblem.workers.map((worker, wIdx) => (
                   <tr key={wIdx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                     <td className="px-4 py-2 font-sans font-medium">{worker}</td>
-                    {assignProblem.tasks.map((_, tIdx) => (
+                    {assignProblem.tasks.map((task, tIdx) => (
                       <td key={tIdx} className="px-3 py-2 text-center">
                         <input
                           type="number"
+                          aria-label={`${worker} -> ${task}`}
                           value={assignProblem.costs[wIdx]?.[tIdx] ?? 0}
                           onChange={(e) => updateAssignCost(wIdx, tIdx, parseFloat(e.target.value) || 0)}
                           className="w-16 text-center px-1.5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-mono tabular-nums text-xs"
@@ -493,6 +521,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={handleSolve}
             className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-sm flex items-center gap-2"
           >
@@ -511,7 +540,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                 {t.transportation.allocationTable}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Computed via {transportProblem.method.toUpperCase()} with MODI optimality verification.
+                {transportProblem.method.toUpperCase()} — {t.transportation.allocationSubtitle}
               </p>
             </div>
             <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-4 py-2 rounded-xl">
@@ -526,7 +555,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
             <table className="w-full text-xs">
               <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-semibold">
                 <tr>
-                  <th className="px-4 py-2.5 text-start">Source \ Destination</th>
+                  <th className="px-4 py-2.5 text-start">{t.transportation.sourceDestHeader}</th>
                   {transportProblem.destinations.map((d) => (
                     <th key={d.id} className="px-3 py-2 text-center font-medium">
                       {d.name}
@@ -534,10 +563,10 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                   ))}
                   {transportResult.dummyAdded === 'destination' && (
                     <th className="px-3 py-2 text-center font-medium text-amber-600">
-                      Dummy Market
+                      {t.transportation.dummyMarket}
                     </th>
                   )}
-                  <th className="px-3 py-2 text-end">Total Supply</th>
+                  <th className="px-3 py-2 text-end">{t.transportation.totalSupply}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
@@ -562,7 +591,7 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                             >
                               <span className="text-sm tabular-nums">{alloc > 0 ? alloc : '-'}</span>
                               <span className="block text-[10px] text-slate-400 font-normal">
-                                (Cost: ${unitCost})
+                                ({t.transportation.unitCostPrefix} ${unitCost})
                               </span>
                             </div>
                           </td>
@@ -597,11 +626,11 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                 {t.transportation.assignmentsResult}
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Exact optimal 1-to-1 matching via Hungarian algorithm.
+                {t.transportation.assignmentsSubtitle}
               </p>
             </div>
             <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-4 py-2 rounded-xl">
-              <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Total Optimal Cost:</span>
+              <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">{t.transportation.totalOptimalCost}:</span>
               <span className="font-mono text-xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
                 ${assignResult.totalCost.toFixed(2)}
               </span>
@@ -623,7 +652,8 @@ export const TransportationModule: React.FC<TransportationModuleProps> = ({
                   <span className="font-medium text-indigo-600 dark:text-indigo-400">{a.taskName}</span>
                 </div>
                 <div className="text-xs text-slate-500 font-mono">
-                  Cost: <strong className="text-slate-900 dark:text-slate-100">${a.cost}</strong>
+                  {t.transportation.unitCostPrefix}{' '}
+                  <strong className="text-slate-900 dark:text-slate-100">${a.cost}</strong>
                 </div>
               </div>
             ))}

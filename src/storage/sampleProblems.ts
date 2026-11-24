@@ -1,6 +1,6 @@
 /**
  * Sheeta Operations Research
- * Default Sample Problems & Industrial Performance Benchmark
+ * Default Sample Problems & Multi-Plant Performance Benchmark
  */
 
 import {
@@ -39,12 +39,12 @@ export const SAMPLE_TWO_VAR_LP: LpProblem = {
 };
 
 /**
- * Industrial Performance Benchmark Model
+ * Multi-Plant Performance Benchmark Model
  * Multi-plant production, blending, and warehouse storage with integer and binary setup variables
  */
-export const INDUSTRIAL_BENCHMARK_LP: LpProblem = {
-  title: 'Industrial Supply & Blending Optimization (Benchmark)',
-  description: 'Multi-variable industrial problem with continuous, integer, and binary variables for performance testing.',
+export const BENCHMARK_LP: LpProblem = {
+  title: 'Multi-Plant Supply & Blending Optimization (Benchmark)',
+  description: 'Multi-variable problem with continuous, integer, and binary variables for solver performance benchmarking.',
   sense: 'maximize',
   isIntegerProgram: true,
   variables: [
@@ -66,6 +66,9 @@ export const INDUSTRIAL_BENCHMARK_LP: LpProblem = {
     { id: 'c6', name: 'Environmental Emission Budget', coeffs: [0.8, 1.4, 0.7, 1.3, 0.2, 0.2, 0, 0], op: '<=', rhs: 140 },
   ],
 };
+
+// Backward-compatible export alias
+export const INDUSTRIAL_BENCHMARK_LP = BENCHMARK_LP;
 
 /**
  * Sample Transportation Problem: 3 Plants -> 4 Distribution Warehouses
@@ -108,7 +111,7 @@ export const SAMPLE_ASSIGNMENT: AssignmentProblem = {
 };
 
 /**
- * Sample PERT / CPM Problem: Industrial Facility Construction
+ * Sample PERT / CPM Problem: Facility Construction Network
  */
 export const SAMPLE_PERT_CPM: ActivityDef[] = [
   { id: 'A', name: 'Site Clearing & Grading', predecessors: [], durationMode: 'three_point', duration: 4, optimistic: 2, mostLikely: 4, pessimistic: 6 },

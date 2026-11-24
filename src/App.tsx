@@ -12,6 +12,7 @@ import {
   AppSettings,
   AssignmentProblem,
   AssignmentResult,
+  BranchAndBoundResult,
   EoqInputs,
   EoqResult,
   LpProblem,
@@ -36,7 +37,7 @@ import { SettingsModal } from './components/settings/SettingsModal';
 import { ReportModal } from './components/reports/ReportModal';
 import { ReportData } from './engines/reportBuilder';
 import {
-  INDUSTRIAL_BENCHMARK_LP,
+  BENCHMARK_LP,
   SAMPLE_EOQ,
   SAMPLE_PERT_CPM,
   SAMPLE_QUEUING,
@@ -158,11 +159,43 @@ function MainApp() {
   };
 
   const handleRunBenchmark = () => {
-    applyExternalProblem('lp', INDUSTRIAL_BENCHMARK_LP);
+    applyExternalProblem('lp', BENCHMARK_LP);
   };
 
   const handleSendSimulationScenario = (moduleType: ORModuleType, problemData: any) => {
     applyExternalProblem(moduleType, problemData);
+  };
+
+  const getLocalizedBbStatusLabel = (bb?: BranchAndBoundResult | null): string => {
+    if (!bb) return t.status.idle;
+    switch (bb.status) {
+      case 'optimal':
+        return t.status.optimal;
+      case 'depth_limit_reached':
+        return t.status.depthLimitReached;
+      case 'node_limit_reached':
+        return t.status.nodeLimitReached;
+      case 'time_limit_reached':
+        return t.status.timeLimitReached;
+      case 'feasible_not_proven':
+        return t.status.feasibleNotProven;
+      case 'cancelled':
+        return t.status.cancelled;
+      case 'unbounded':
+        return t.status.unbounded;
+      case 'infeasible':
+        return t.status.infeasible;
+    }
+  };
+
+  const getLocalizedBbWarning = (bb?: BranchAndBoundResult | null): string | undefined => {
+    if (!bb || bb.status === 'optimal' || bb.status === 'infeasible' || bb.status === 'unbounded') {
+      return undefined;
+    }
+    if (bb.status === 'cancelled') {
+      return t.status.cancelled;
+    }
+    return t.lp.notProvenWarning;
   };
 
   // Build report data for active module
@@ -171,23 +204,38 @@ function MainApp() {
 
     if (activeModule === 'lp') {
       const isIp = lpProblem?.isIntegerProgram;
-      const optVal = isIp
-        ? lpResults?.bb?.bestObjectiveValue
-        : lpResults?.simplex?.objectiveValue;
-      const status = isIp
-        ? lpResults?.bb?.status || 'Solved'
-        : lpResults?.simplex?.status || 'Solved';
+      const bb: BranchAndBoundResult | undefined = lpResults?.bb;
+      const simplex = lpResults?.simplex;
 
-      const varAssignments = lpProblem?.variables?.map((v, idx) => {
-        const val = isIp
-          ? lpResults?.bb?.bestIntegerSolution?.[idx]
-          : lpResults?.simplex?.variableValues?.[idx];
-        return { name: v.name, value: val ?? 0 };
-      });
+      const optVal = isIp ? bb?.bestObjectiveValue : simplex?.objectiveValue;
+
+      let statusText = t.status.idle;
+      if (isIp && bb) {
+        statusText = getLocalizedBbStatusLabel(bb);
+      } else if (!isIp && simplex) {
+        if (simplex.status === 'optimal') statusText = t.status.optimal;
+        else if (simplex.status === 'infeasible') statusText = t.status.infeasible;
+        else if (simplex.status === 'unbounded') statusText = t.status.unbounded;
+        else if (simplex.status === 'iteration_limit') statusText = t.status.iterationLimit;
+        else if (simplex.status === 'cancelled') statusText = t.status.cancelled;
+      }
+
+      const rawAssignments = isIp ? bb?.bestIntegerSolution : simplex?.variableValues;
+      const varAssignments =
+        rawAssignments && lpProblem?.variables
+          ? lpProblem.variables.map((v, idx) => ({
+              name: v.name,
+              value: rawAssignments[idx] ?? 0,
+            }))
+          : undefined;
+
+      const constraintDetails = isIp
+        ? bb?.lpRelaxation?.constraintDetails
+        : simplex?.constraintDetails;
 
       return {
-        title: lpProblem?.title || 'Linear Programming Problem',
-        moduleName: isIp ? 'Integer / Binary Programming' : 'Linear Programming (Two-Phase Simplex)',
+        title: lpProblem?.title || t.lp.problemTitle,
+        moduleName: isIp ? t.lp.isIntegerProgram : t.modules.lp,
         language,
         createdAt: nowStr,
         formulation: `Objective: ${lpProblem?.sense?.toUpperCase()} Z = ${lpProblem?.variables
@@ -200,9 +248,11 @@ function MainApp() {
                 .join(' + ')} ${c.op} ${c.rhs}`
           )
           .join('\n')}`,
-        solutionStatus: status,
+        solutionStatus: statusText,
+        warningMessage: isIp ? getLocalizedBbWarning(bb) : undefined,
         optimalObjective: optVal,
         variableAssignments: varAssignments,
+        constraintDetails,
         presolveSummary: lpResults?.presolve?.stats
           ? {
               originalVars: lpResults.presolve.stats.originalVars,
@@ -213,13 +263,16 @@ function MainApp() {
             }
           : undefined,
         comparison:
-          isIp && lpResults?.bb
+          isIp && bb
             ? {
-                lpRelaxationValue: lpResults.bb.lpRelaxation.objectiveValue,
-                integerSolutionValue: lpResults.bb.bestObjectiveValue ?? 0,
-                integralityGapPercent: lpResults.bb.stats.integralityGapPercent,
-                exploredNodes: lpResults.bb.stats.exploredNodes,
-                executionTimeMs: lpResults.bb.stats.executionTimeMs,
+                lpRelaxationValue: bb.lpRelaxation.objectiveValue,
+                integerSolutionValue: bb.bestObjectiveValue,
+                bestBound: bb.bestBound,
+                integralityGapPercent: bb.stats.integralityGapPercent,
+                exploredNodes: bb.stats.exploredNodes,
+                executionTimeMs: bb.stats.executionTimeMs,
+                matrixModeUsed: bb.matrixModeUsed,
+                limitsUsed: bb.limitsUsed,
               }
             : undefined,
       };
@@ -230,16 +283,16 @@ function MainApp() {
         const assignRes =
           transportResults && 'assignments' in transportResults ? transportResults : null;
         return {
-          title: transportProblem.title || 'Hungarian Assignment Problem',
-          moduleName: 'Hungarian Assignment Model',
+          title: transportProblem.title || t.transportation.assignmentMode,
+          moduleName: t.transportation.assignmentMode,
           language,
           createdAt: nowStr,
           formulation: `Sense: ${transportProblem.sense.toUpperCase()} | Workers: ${transportProblem.workers.length}, Tasks: ${transportProblem.tasks.length}`,
-          solutionStatus: assignRes ? 'Optimal 1-to-1 Matching' : 'Not Solved Yet',
+          solutionStatus: assignRes ? t.status.optimal : t.status.idle,
           optimalObjective: assignRes?.totalCost,
           additionalNotes: assignRes
             ? assignRes.assignments.map(
-                (a) => `${a.workerName} → ${a.taskName} (Cost: ${a.cost})`
+                (a) => `${a.workerName} → ${a.taskName} (${t.transportation.unitCostPrefix} ${a.cost})`
               )
             : undefined,
         };
@@ -249,80 +302,85 @@ function MainApp() {
       const tRes =
         transportResults && 'allocations' in transportResults ? transportResults : null;
       return {
-        title: tProb?.title || 'Transportation Problem',
-        moduleName: `Transportation Network (${tProb?.method?.toUpperCase() || 'VAM'} + MODI)`,
+        title: tProb?.title || t.transportation.transportationMode,
+        moduleName: `${t.transportation.transportationMode} (${tProb?.method?.toUpperCase() || 'VAM'} + MODI)`,
         language,
         createdAt: nowStr,
         formulation: `Sources: ${tProb?.sources?.length || 0}, Destinations: ${
           tProb?.destinations?.length || 0
         }`,
-        solutionStatus: tRes ? 'Optimal Distribution' : 'Not Solved Yet',
+        solutionStatus: tRes ? t.status.optimal : t.status.idle,
         optimalObjective: tRes?.totalCost,
-        additionalNotes: tRes?.dummyAdded
-          ? [`Balancing dummy ${tRes.dummyAdded} added automatically.`]
-          : undefined,
+        additionalNotes:
+          tRes?.dummyAdded && tRes.dummyAdded !== 'none'
+            ? [t.transportation.unbalancedWarning]
+            : undefined,
       };
     }
 
     if (activeModule === 'pert') {
       return {
-        title: 'Project Schedule (PERT / CPM)',
-        moduleName: 'Project Network Management',
+        title: t.pert.title,
+        moduleName: t.modules.pert,
         language,
         createdAt: nowStr,
-        formulation: `Activities: ${pertActivities?.length || 0}`,
-        solutionStatus: pertResults ? 'Schedule Computed' : 'Not Solved Yet',
+        formulation: `${t.pert.activitiesHeader}: ${pertActivities?.length || 0}`,
+        solutionStatus: pertResults ? t.status.completed : t.status.idle,
         optimalObjective: pertResults?.totalDuration,
-        additionalNotes: [
-          `Critical Path: ${pertResults?.criticalPath?.join(' → ') || 'N/A'}`,
-          `Project Standard Deviation: ${pertResults?.projectStdDev?.toFixed(2) || '0'}`,
-        ],
+        pertCriticalPaths: pertResults?.criticalPaths,
+        pertPathsCapped: pertResults?.pathsCapped,
+        additionalNotes: pertResults
+          ? [
+              `${t.pert.criticalPath}: ${pertResults.criticalPath.join(' → ')}`,
+              `${t.pert.projectStdDev}: ${pertResults.projectStdDev.toFixed(2)}`,
+            ]
+          : undefined,
       };
     }
 
     if (activeModule === 'queuing_eoq') {
       if (queuingActiveTab === 'queuing') {
         return {
-          title: `Queuing System Analysis (${queuingInputs.model.toUpperCase()})`,
-          moduleName: 'Queuing Theory',
+          title: `${t.queuingEoq.queuingTab} (${queuingInputs.model.toUpperCase()})`,
+          moduleName: t.modules.queuingEoq,
           language,
           createdAt: nowStr,
-          formulation: `Model: ${queuingInputs.model.toUpperCase()}, Arrival Rate λ = ${queuingInputs.arrivalRate}, Service Rate μ = ${queuingInputs.serviceRate}, Servers c = ${queuingInputs.servers}`,
+          formulation: `Model: ${queuingInputs.model.toUpperCase()}, λ = ${queuingInputs.arrivalRate}, μ = ${queuingInputs.serviceRate}, c = ${queuingInputs.servers}`,
           solutionStatus: queuingResults
-            ? queuingResults.rho < 1
-              ? 'Steady-State Computed'
-              : 'Unstable System (ρ ≥ 1)'
-            : 'Not Solved Yet',
+            ? queuingResults.rho < 1 || queuingInputs.model === 'mm1k'
+              ? t.status.completed
+              : t.queuingEoq.unstableWarning
+            : t.status.idle,
           optimalObjective: queuingResults?.w,
           additionalNotes: queuingResults
             ? [
-                `Server Utilization (ρ): ${(queuingResults.rho * 100).toFixed(2)}%`,
-                `Empty System Probability (P₀): ${(queuingResults.p0 * 100).toFixed(2)}%`,
-                `Expected Queue Length (Lq): ${queuingResults.lq.toFixed(4)}`,
-                `Expected System Length (L): ${queuingResults.l.toFixed(4)}`,
-                `Expected Queue Wait (Wq): ${queuingResults.wq.toFixed(4)}`,
-                `Expected Total Time (W): ${queuingResults.w.toFixed(4)}`,
+                `${t.queuingEoq.utilization}: ${(queuingResults.rho * 100).toFixed(2)}%`,
+                `${t.queuingEoq.p0}: ${(queuingResults.p0 * 100).toFixed(2)}%`,
+                `${t.queuingEoq.lq}: ${queuingResults.lq.toFixed(4)}`,
+                `${t.queuingEoq.l}: ${queuingResults.l.toFixed(4)}`,
+                `${t.queuingEoq.wq}: ${queuingResults.wq.toFixed(4)}`,
+                `${t.queuingEoq.w}: ${queuingResults.w.toFixed(4)}`,
               ]
             : undefined,
         };
       }
 
       return {
-        title: `Inventory Optimization (${eoqInputs.model.toUpperCase()})`,
-        moduleName: 'Inventory Control & EOQ / EPQ',
+        title: `${t.queuingEoq.eoqTab} (${eoqInputs.model.toUpperCase()})`,
+        moduleName: t.modules.queuingEoq,
         language,
         createdAt: nowStr,
-        formulation: `Model: ${eoqInputs.model}, Annual Demand D = ${eoqInputs.annualDemand}, Order Cost S = ${eoqInputs.orderCost}, Holding Cost H = ${eoqInputs.holdingCost}, Unit Cost C = ${eoqInputs.unitCost}`,
-        solutionStatus: eoqResults ? 'Optimal Policy Computed' : 'Not Solved Yet',
+        formulation: `Model: ${eoqInputs.model}, D = ${eoqInputs.annualDemand}, S = ${eoqInputs.orderCost}, H = ${eoqInputs.holdingCost}, C = ${eoqInputs.unitCost}`,
+        solutionStatus: eoqResults ? t.status.completed : t.status.idle,
         optimalObjective: eoqResults?.totalAnnualCost,
         additionalNotes: eoqResults
           ? [
-              `Optimal Order Quantity (Q*): ${eoqResults.optimalQty.toFixed(2)}`,
-              `Max Inventory Level: ${eoqResults.maxInventory.toFixed(2)}`,
-              `Orders Per Year: ${eoqResults.ordersPerYear.toFixed(2)}`,
-              `Cycle Time: ${eoqResults.cycleTimeDays.toFixed(1)} days`,
+              `${t.queuingEoq.optimalQty}: ${eoqResults.optimalQty.toFixed(2)}`,
+              `${t.queuingEoq.maxInventory}: ${eoqResults.maxInventory.toFixed(2)}`,
+              `${t.queuingEoq.ordersPerYear}: ${eoqResults.ordersPerYear.toFixed(2)}`,
+              `${t.queuingEoq.cycleTime}: ${eoqResults.cycleTimeDays.toFixed(1)} ${t.queuingEoq.daysShort}`,
               ...(eoqResults.reorderPoint !== undefined
-                ? [`Reorder Point (ROP): ${eoqResults.reorderPoint.toFixed(2)}`]
+                ? [`${t.queuingEoq.reorderPoint}: ${eoqResults.reorderPoint.toFixed(2)}`]
                 : []),
             ]
           : undefined,
@@ -330,28 +388,36 @@ function MainApp() {
     }
 
     return {
-      title: 'Monte Carlo & Scenario Simulation Analysis',
-      moduleName: 'Simulation & Sensitivity Explorer',
+      title: t.simulation.title,
+      moduleName: t.modules.simulation,
       language,
       createdAt: nowStr,
       formulation: simulationSummary
-        ? `Executed ${simulationSummary.totalScenarios} scenarios (${simulationSummary.feasibleCount} feasible, ${simulationSummary.infeasibleCount} infeasible).`
-        : 'No simulation batch executed yet.',
-      solutionStatus: simulationSummary ? 'Batch Completed' : 'Idle',
+        ? `${t.simulation.completedPrefix} ${simulationSummary.totalScenarios} (${simulationSummary.feasibleCount} ${t.simulation.feasibleBadge}, ${simulationSummary.infeasibleCount} ${t.simulation.infeasibleBadge}).`
+        : t.status.idle,
+      solutionStatus: simulationSummary
+        ? simulationSummary.cancelled
+          ? t.status.cancelled
+          : t.status.completed
+        : t.status.idle,
       optimalObjective: simulationSummary?.meanValue,
       simulationStats: simulationSummary
         ? {
             totalScenarios: simulationSummary.totalScenarios,
+            feasibleCount: simulationSummary.feasibleCount,
             bestValue: simulationSummary.bestValue,
             worstValue: simulationSummary.worstValue,
             meanValue: simulationSummary.meanValue,
             stdDevValue: simulationSummary.stdDevValue,
+            workerPoolSize: simulationSummary.workerPoolSize,
           }
         : undefined,
     };
   }, [
     activeModule,
     language,
+    t,
+    settings,
     lpProblem,
     lpResults,
     transportProblem,
@@ -403,6 +469,7 @@ function MainApp() {
               setLpProblem(prob);
               if (res) setLpResults(res);
             }}
+            settings={settings}
             enablePresolve={settings.presolveEnabled}
             enableWorker={settings.webWorkerEnabled}
             branchingStrategy={settings.branchingStrategy}
@@ -462,6 +529,7 @@ function MainApp() {
             activeModuleType={activeModule}
             onSendToModule={handleSendSimulationScenario}
             onUpdateSummary={setSimulationSummary}
+            settings={settings}
             enableWorker={settings.webWorkerEnabled}
           />
         )}
@@ -473,9 +541,7 @@ function MainApp() {
           <span className="font-semibold text-slate-700 dark:text-slate-300">
             {t.appName}
           </span>
-          <span>
-            Two-Phase Simplex • Branch and Bound • Multi-Pass Presolve • Monte Carlo Simulation
-          </span>
+          <span>{t.footerEngines}</span>
         </div>
       </footer>
 

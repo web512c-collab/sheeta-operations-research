@@ -1,7 +1,7 @@
 [package]
 name = "sheeta-operations-research"
-version = "1.0.0"
-description = "Industrial-grade Operations Research solver and simulation suite"
+version = "1.1.0"
+description = "Bilingual quantitative Operations Research solver and simulation suite"
 authors = ["Sheeta OR Team"]
 license = "Apache-2.0"
 repository = "https://github.com/web512c-collab/sheeta-operations-research"

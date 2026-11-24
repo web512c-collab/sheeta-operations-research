@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityDef, PertCpmResult, RunStatus } from '../../types';
 import { useI18n } from '../../i18n/i18nContext';
 import { SAMPLE_PERT_CPM } from '../../storage/sampleProblems';
-import { solvePertCpm } from '../../engines/pertCpm';
+import { PertValidationError, solvePertCpm } from '../../engines/pertCpm';
 import { StatusBanner } from '../common/StatusBanner';
 import {
   Play,
@@ -36,7 +36,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
   const [result, setResult] = useState<PertCpmResult | null>(null);
 
   const [status, setStatus] = useState<RunStatus>('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [errorObj, setErrorObj] = useState<unknown | null>(null);
 
   const [targetDays, setTargetDays] = useState<number>(30);
   const lastSyncRef = useRef<{ activities?: ActivityDef[]; version?: number }>({
@@ -58,12 +58,40 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
     }
     setResult(null);
     setStatus('idle');
-    setStatusMessage('');
+    setErrorObj(null);
   }, [initialActivities, syncVersion]);
+
+  const formatPertError = (err: unknown): string => {
+    if (err instanceof PertValidationError) {
+      const errs = t.pert.validationErrors;
+      switch (err.code) {
+        case 'EMPTY_NETWORK':
+          return errs.EMPTY_NETWORK;
+        case 'EMPTY_ID':
+          return errs.EMPTY_ID;
+        case 'DUPLICATE_ID':
+          return `${errs.DUPLICATE_ID} ${err.details?.activityId ?? ''}`;
+        case 'SELF_DEPENDENCY':
+          return `${errs.SELF_DEPENDENCY} ${err.details?.activityId ?? ''}`;
+        case 'UNKNOWN_PREDECESSOR':
+          return `${errs.UNKNOWN_PREDECESSOR} ${err.details?.predecessorId ?? ''} (${err.details?.activityId ?? ''})`;
+        case 'INVALID_DURATION':
+          return `${errs.INVALID_DURATION} ${err.details?.activityId ?? ''}`;
+        case 'INVALID_THREE_POINT':
+          return `${errs.INVALID_THREE_POINT} ${err.details?.activityId ?? ''}`;
+        case 'CYCLE_DETECTED':
+          return `${errs.CYCLE_DETECTED} ${(err.details?.cycle ?? []).join(' → ')}`;
+      }
+    }
+    if (err instanceof Error && err.message) {
+      return err.message;
+    }
+    return t.pert.validationErrors.generic;
+  };
 
   const handleSolve = () => {
     setStatus('running');
-    setStatusMessage(t.status.running);
+    setErrorObj(null);
 
     setTimeout(() => {
       try {
@@ -72,17 +100,27 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
         setResult(res);
         setTargetDays(Math.ceil(res.totalDuration * 1.1));
         setStatus('completed');
-        setStatusMessage(t.status.optimal);
+        setErrorObj(null);
 
         if (onUpdateActiveProblem) {
           onUpdateActiveProblem(configured, res);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
+        setResult(null);
         setStatus('error');
-        setStatusMessage(err?.message || 'Error computing project schedule');
+        setErrorObj(err);
       }
     }, 50);
   };
+
+  const statusMessage =
+    status === 'running'
+      ? t.status.running
+      : status === 'completed'
+      ? t.status.optimal
+      : status === 'error'
+      ? formatPertError(errorObj)
+      : '';
 
   const commitActivities = (updated: ActivityDef[]) => {
     setActivities(updated);
@@ -90,10 +128,13 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
   };
 
   const addActivity = () => {
-    const nextCode = String.fromCharCode(65 + activities.length);
+    const nextCode =
+      activities.length < 26
+        ? String.fromCharCode(65 + activities.length)
+        : `ACT${activities.length + 1}`;
     const newAct: ActivityDef = {
       id: nextCode,
-      name: `Activity ${nextCode}`,
+      name: `${nextCode}`,
       predecessors: activities.length > 0 ? [activities[activities.length - 1].id] : [],
       durationMode,
       duration: 5,
@@ -127,12 +168,13 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
             {t.pert.title}
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Forward and backward pass scheduling, slack analysis, and critical path identification.
+            {t.pert.subtitle}
           </p>
         </div>
 
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
           <button
+            type="button"
             onClick={() => setDurationMode('single')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
               durationMode === 'single'
@@ -143,6 +185,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
             {t.pert.singleTime}
           </button>
           <button
+            type="button"
             onClick={() => setDurationMode('three_point')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
               durationMode === 'three_point'
@@ -161,15 +204,16 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-xs space-y-6">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <span>Project Activities</span>
+            <span>{t.pert.activitiesHeader}</span>
             <span className="text-xs text-slate-500 font-normal">({activities.length})</span>
           </h3>
           <button
+            type="button"
             onClick={addActivity}
             className="px-3 py-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" />
-            <span>Add Activity</span>
+            <span>{t.pert.addActivity}</span>
           </button>
         </div>
 
@@ -189,15 +233,16 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                     <th className="px-3 py-2 text-end">{t.pert.pessimistic}</th>
                   </>
                 )}
-                <th className="px-3 py-2 text-end">Action</th>
+                <th className="px-3 py-2 text-end">{t.actionCol}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {activities.map((act, idx) => (
-                <tr key={act.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
                   <td className="px-3 py-2 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                     <input
                       type="text"
+                      aria-label={`${t.pert.activityId} ${idx + 1}`}
                       value={act.id}
                       onChange={(e) => updateActivity(idx, { id: e.target.value })}
                       className="w-14 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-mono font-bold"
@@ -206,6 +251,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                   <td className="px-3 py-2">
                     <input
                       type="text"
+                      aria-label={`${t.pert.activityName} ${act.id}`}
                       value={act.name}
                       onChange={(e) => updateActivity(idx, { name: e.target.value })}
                       className="w-56 px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded font-medium"
@@ -214,8 +260,9 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                   <td className="px-3 py-2">
                     <input
                       type="text"
+                      aria-label={`${t.pert.predecessors} ${act.id}`}
                       value={act.predecessors.join(', ')}
-                      placeholder="e.g. A, B"
+                      placeholder={t.pert.predecessorsPlaceholder}
                       onChange={(e) =>
                         updateActivity(idx, {
                           predecessors: e.target.value
@@ -232,6 +279,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                       <input
                         type="number"
                         step="any"
+                        aria-label={`${t.pert.duration} ${act.id}`}
                         value={act.duration}
                         onChange={(e) =>
                           updateActivity(idx, { duration: parseFloat(e.target.value) || 0 })
@@ -245,6 +293,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                         <input
                           type="number"
                           step="any"
+                          aria-label={`${t.pert.optimistic} ${act.id}`}
                           value={act.optimistic ?? act.duration}
                           onChange={(e) =>
                             updateActivity(idx, { optimistic: parseFloat(e.target.value) || 0 })
@@ -256,6 +305,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                         <input
                           type="number"
                           step="any"
+                          aria-label={`${t.pert.mostLikely} ${act.id}`}
                           value={act.mostLikely ?? act.duration}
                           onChange={(e) =>
                             updateActivity(idx, { mostLikely: parseFloat(e.target.value) || 0 })
@@ -267,6 +317,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                         <input
                           type="number"
                           step="any"
+                          aria-label={`${t.pert.pessimistic} ${act.id}`}
                           value={act.pessimistic ?? act.duration}
                           onChange={(e) =>
                             updateActivity(idx, { pessimistic: parseFloat(e.target.value) || 0 })
@@ -278,8 +329,10 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                   )}
                   <td className="px-3 py-2 text-end">
                     <button
+                      type="button"
                       onClick={() => removeActivity(idx)}
                       disabled={activities.length <= 1}
+                      aria-label={`${t.actions.remove} ${act.id}`}
                       className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 rounded transition-colors"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -292,11 +345,12 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
         </div>
 
         <button
+          type="button"
           onClick={handleSolve}
           className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 rounded-xl transition-all shadow-sm flex items-center gap-2"
         >
           <Play className="w-4 h-4 fill-current" />
-          <span>Compute Schedule & Critical Path</span>
+          <span>{t.pert.computeBtn}</span>
         </button>
       </div>
 
@@ -309,28 +363,46 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
               <span className="text-xs text-slate-500">{t.pert.totalDuration}</span>
               <p className="font-mono text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1 tabular-nums">
                 {result.totalDuration.toFixed(2)}{' '}
-                <span className="text-sm font-normal text-slate-500">days</span>
+                <span className="text-sm font-normal text-slate-500">{t.pert.daysUnit}</span>
               </p>
             </div>
 
             <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
-              <span className="text-xs text-slate-500">{t.pert.criticalPath}</span>
-              <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                {result.criticalPath.map((id, idx) => (
-                  <React.Fragment key={id}>
-                    <span className="px-2.5 py-1 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-mono font-bold text-xs rounded-md">
-                      {id}
-                    </span>
-                    {idx < result.criticalPath.length - 1 && (
-                      <span className="text-slate-400 text-xs font-bold">→</span>
+              <span className="text-xs text-slate-500">
+                {result.criticalPaths.length > 1
+                  ? `${t.pert.allCriticalPaths} (${result.criticalPaths.length})`
+                  : t.pert.criticalPath}
+              </span>
+              <div className="space-y-2 mt-2">
+                {result.criticalPaths.map((path, pIdx) => (
+                  <div key={pIdx} className="flex flex-wrap items-center gap-1.5">
+                    {result.criticalPaths.length > 1 && (
+                      <span className="text-[10px] font-bold text-slate-400 me-1">
+                        {t.pert.pathLabel} #{pIdx + 1}:
+                      </span>
                     )}
-                  </React.Fragment>
+                    {path.map((id, idx) => (
+                      <React.Fragment key={`${pIdx}_${id}_${idx}`}>
+                        <span className="px-2 py-0.5 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-mono font-bold text-xs rounded-md">
+                          {id}
+                        </span>
+                        {idx < path.length - 1 && (
+                          <span className="text-slate-400 text-xs font-bold">→</span>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
                 ))}
+                {result.pathsCapped && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                    {t.pert.pathsCappedNotice}
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
-              <span className="text-xs text-slate-500">{t.pert.projectStdDev} (σ)</span>
+              <span className="text-xs text-slate-500">{t.pert.projectStdDev}</span>
               <p className="font-mono text-2xl font-bold text-slate-800 dark:text-slate-200 mt-1 tabular-nums">
                 {result.projectStdDev.toFixed(2)}{' '}
                 <span className="text-xs font-normal text-slate-400">
@@ -343,7 +415,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
           {/* Full Activity Schedule Calculations */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-xs">
             <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-4">
-              Activity Timing & Slack Table
+              {t.pert.timingTableTitle}
             </h3>
             <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
               <table className="w-full text-xs">
@@ -409,8 +481,8 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
 
                 return (
                   <div key={act.id} className="flex items-center gap-4 text-xs">
-                    <div className="w-20 font-mono font-bold text-slate-700 dark:text-slate-300 truncate">
-                      {act.id} ({act.expectedDuration.toFixed(1)}d)
+                    <div className="w-24 shrink-0 font-mono font-bold text-slate-700 dark:text-slate-300 truncate">
+                      {act.id} ({act.expectedDuration.toFixed(1)}{t.queuingEoq.daysShort})
                     </div>
                     <div dir="ltr" className="flex-1 bg-slate-100 dark:bg-slate-800 h-6 rounded-md relative overflow-hidden">
                       <div
@@ -444,6 +516,7 @@ export const PertCpmModule: React.FC<PertCpmModuleProps> = ({
                 <label className="text-xs text-slate-600 dark:text-slate-400">{t.pert.targetDays}:</label>
                 <input
                   type="number"
+                  aria-label={t.pert.targetDays}
                   value={targetDays}
                   onChange={(e) => setTargetDays(parseFloat(e.target.value) || 0)}
                   className="w-24 px-2 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono text-sm"

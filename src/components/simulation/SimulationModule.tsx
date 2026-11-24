@@ -11,8 +11,10 @@ import {
   ScenarioRun,
   SimulationSummary,
   SimulationType,
+  SolverSettings,
   StochasticParam,
 } from '../../types';
+import { DEFAULT_SETTINGS } from '../../storage/db';
 import { useI18n } from '../../i18n/i18nContext';
 import { cancelCurrentRun, requestRunSimulation } from '../../workers/workerClient';
 import { StatusBanner } from '../common/StatusBanner';
@@ -41,7 +43,8 @@ interface SimulationModuleProps {
   activeModuleType: ORModuleType;
   onSendToModule: (moduleType: ORModuleType, problemData: any) => void;
   onUpdateSummary?: (summary: SimulationSummary) => void;
-  enableWorker: boolean;
+  settings?: SolverSettings;
+  enableWorker?: boolean;
 }
 
 const PARAM_PRESETS: Record<string, StochasticParam[]> = {
@@ -144,7 +147,7 @@ const PARAM_PRESETS: Record<string, StochasticParam[]> = {
       id: 'pert_act_A',
       targetModule: 'pert',
       paramKey: 'act_A',
-      label: 'Duration of Activity A (Concept & Feasibility)',
+      label: 'Duration of Activity A (Site Clearing)',
       distribution: 'uniform',
       min: 2,
       max: 8,
@@ -159,7 +162,7 @@ const PARAM_PRESETS: Record<string, StochasticParam[]> = {
       id: 'pert_act_B',
       targetModule: 'pert',
       paramKey: 'act_B',
-      label: 'Duration of Activity B (System Architecture)',
+      label: 'Duration of Activity B (Foundation)',
       distribution: 'triangular',
       min: 3,
       max: 10,
@@ -226,22 +229,27 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
   activeModuleType,
   onSendToModule,
   onUpdateSummary,
+  settings,
   enableWorker,
 }) => {
   const { t } = useI18n();
+
+  const effectiveSettings: SolverSettings = settings ?? {
+    ...DEFAULT_SETTINGS,
+    webWorkerEnabled: enableWorker ?? DEFAULT_SETTINGS.webWorkerEnabled,
+  };
 
   const [simType, setSimType] = useState<SimulationType>('monte_carlo');
   const [targetModule, setTargetModule] = useState<ORModuleType>(
     activeModuleType === 'simulation' ? 'lp' : activeModuleType
   );
   const [numScenarios, setNumScenarios] = useState<number>(50);
-
-  // Stochastic Parameter definition
   const [param, setParam] = useState<StochasticParam>(PARAM_PRESETS.lp[0]);
 
   const [status, setStatus] = useState<RunStatus>('idle');
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -251,7 +259,6 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
 
   const [summary, setSummary] = useState<SimulationSummary | null>(null);
 
-  // Explorer State
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'best' | 'worst' | 'id'>('best');
   const [currentPage, setCurrentPage] = useState(1);
@@ -267,8 +274,9 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
   };
 
   const handleRun = async () => {
+    setIsCancelling(false);
+    setErrorDetail(null);
     setStatus('running');
-    setStatusMessage(t.status.running);
     setProgress(0);
 
     let baseProblem = moduleProblems?.[targetModule];
@@ -304,36 +312,53 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
           numScenarios,
           param: { ...param, targetModule },
           baseProblem,
+          solverSettings: effectiveSettings,
         },
-        enableWorker,
+        effectiveSettings.webWorkerEnabled,
         (completed, total) => {
-          setProgress(Math.round((completed / total) * 100));
+          setProgress(Math.round((completed / Math.max(1, total)) * 100));
         }
       );
 
+      setIsCancelling(false);
       setSummary(summaryResult);
       if (onUpdateSummary) {
         onUpdateSummary(summaryResult);
       }
-      setStatus('completed');
-      setStatusMessage(`Completed ${summaryResult.totalScenarios} scenarios.`);
+      if (summaryResult.cancelled) {
+        setStatus('cancelled');
+      } else {
+        setStatus('completed');
+      }
       setCurrentPage(1);
     } catch (err: any) {
+      setIsCancelling(false);
       setStatus('error');
-      setStatusMessage(err?.message || 'Error executing scenarios');
+      setErrorDetail(err?.message || '');
     }
   };
 
   const handleCancel = () => {
+    setIsCancelling(true);
     cancelCurrentRun();
-    setStatus('cancelled');
-    setStatusMessage(t.status.cancelled);
   };
 
-  // Filter & Sort scenarios
+  const statusMessage =
+    status === 'running'
+      ? isCancelling
+        ? t.actions.cancelling
+        : t.status.running
+      : status === 'cancelled' && summary
+      ? `${t.simulation.cancelledPrefix} ${summary.totalScenarios}`
+      : status === 'completed' && summary
+      ? `${t.simulation.completedPrefix} ${summary.totalScenarios}`
+      : status === 'error'
+      ? errorDetail || t.simulation.runError
+      : '';
+
   const filteredScenarios = React.useMemo(() => {
     if (!summary) return [];
-    let list = summary.scenarios.filter((s) => {
+    const list = summary.scenarios.filter((s) => {
       const q = searchQuery.toLowerCase();
       if (!q) return true;
       return (
@@ -366,7 +391,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
       id,
       title: `${scenario.title}`,
       module: targetModule,
-      description: `Generated from Scenario #${scenario.id} with ${JSON.stringify(scenario.paramValues)}`,
+      description: `#${scenario.id}: ${JSON.stringify(scenario.paramValues)}`,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       data: scenario.problemSnapshot,
@@ -397,6 +422,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
 
           <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
             <button
+              type="button"
               onClick={() => setSimType('monte_carlo')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 simType === 'monte_carlo'
@@ -407,6 +433,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
               {t.simulation.monteCarlo}
             </button>
             <button
+              type="button"
               onClick={() => setSimType('parameter_sweep')}
               className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                 simType === 'parameter_sweep'
@@ -426,6 +453,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
               {t.simulation.targetModule}
             </label>
             <select
+              aria-label={t.simulation.targetModule}
               value={targetModule}
               onChange={(e) => handleTargetModuleChange(e.target.value as ORModuleType)}
               className="w-full px-3 py-2 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
@@ -442,15 +470,16 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
               {t.simulation.numScenarios}
             </label>
             <select
+              aria-label={t.simulation.numScenarios}
               value={numScenarios}
               onChange={(e) => setNumScenarios(parseInt(e.target.value, 10))}
               className="w-full px-3 py-2 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg"
             >
-              <option value="20">20 Scenarios (Fast Preview)</option>
-              <option value="50">50 Scenarios (Standard Batch)</option>
-              <option value="100">100 Scenarios (Robust Sample)</option>
-              <option value="250">250 Scenarios (Industrial Large)</option>
-              <option value="500">500 Scenarios (Extensive Monte Carlo)</option>
+              <option value="20">{t.simulation.batch20}</option>
+              <option value="50">{t.simulation.batch50}</option>
+              <option value="100">{t.simulation.batch100}</option>
+              <option value="250">{t.simulation.batch250}</option>
+              <option value="500">{t.simulation.batch500}</option>
             </select>
           </div>
 
@@ -459,6 +488,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
               {t.simulation.distribution}
             </label>
             <select
+              aria-label={t.simulation.distribution}
               value={param.distribution}
               disabled={simType === 'parameter_sweep'}
               onChange={(e) =>
@@ -479,6 +509,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
               </label>
               {PARAM_PRESETS[targetModule] && (
                 <select
+                  aria-label={t.simulation.varyParameter}
                   value={param.paramKey}
                   onChange={(e) => {
                     const found = PARAM_PRESETS[targetModule]?.find(
@@ -498,6 +529,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
             </div>
             <input
               type="text"
+              aria-label={t.simulation.varyParameter}
               value={param.label}
               onChange={(e) => setParam({ ...param, label: e.target.value })}
               className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-medium"
@@ -508,18 +540,20 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
         {/* Range and Distribution Params */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4">
           <div>
-            <label className="text-xs text-slate-500 block mb-1">Min Value</label>
+            <label className="text-xs text-slate-500 block mb-1">{t.simulation.minVal}</label>
             <input
               type="number"
+              aria-label={t.simulation.minVal}
               value={param.min}
               onChange={(e) => setParam({ ...param, min: parseFloat(e.target.value) || 0 })}
               className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono tabular-nums"
             />
           </div>
           <div>
-            <label className="text-xs text-slate-500 block mb-1">Max Value</label>
+            <label className="text-xs text-slate-500 block mb-1">{t.simulation.maxVal}</label>
             <input
               type="number"
+              aria-label={t.simulation.maxVal}
               value={param.max}
               onChange={(e) => setParam({ ...param, max: parseFloat(e.target.value) || 0 })}
               className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono tabular-nums"
@@ -528,18 +562,20 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
           {simType === 'monte_carlo' && (
             <>
               <div>
-                <label className="text-xs text-slate-500 block mb-1">Mean (μ)</label>
+                <label className="text-xs text-slate-500 block mb-1">{t.simulation.meanVal}</label>
                 <input
                   type="number"
+                  aria-label={t.simulation.meanVal}
                   value={param.mean}
                   onChange={(e) => setParam({ ...param, mean: parseFloat(e.target.value) || 0 })}
                   className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono tabular-nums"
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-500 block mb-1">Std. Dev. (σ)</label>
+                <label className="text-xs text-slate-500 block mb-1">{t.simulation.stdDevInput}</label>
                 <input
                   type="number"
+                  aria-label={t.simulation.stdDevInput}
                   value={param.stdDev}
                   onChange={(e) => setParam({ ...param, stdDev: parseFloat(e.target.value) || 0 })}
                   className="w-full px-3 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg font-mono tabular-nums"
@@ -551,12 +587,13 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
 
         <div className="pt-6">
           <button
+            type="button"
             onClick={handleRun}
             disabled={status === 'running'}
             className="px-6 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 rounded-xl transition-all shadow-sm flex items-center gap-2"
           >
             <Play className="w-4 h-4 fill-current" />
-            <span>{status === 'running' ? 'Simulating Batch...' : t.actions.runSimulation}</span>
+            <span>{status === 'running' ? t.actions.runningSimulation : t.actions.runSimulation}</span>
           </button>
         </div>
       </div>
@@ -564,13 +601,21 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
       <StatusBanner
         status={status}
         customMessage={statusMessage}
-        onCancel={handleCancel}
+        onCancel={status === 'running' && !isCancelling ? handleCancel : undefined}
         progressPercent={progress}
       />
 
       {/* Simulation Results & Distribution */}
       {summary && (
         <div className="space-y-6">
+          {/* Worker Pool Metadata */}
+          {summary.workerPoolSize !== undefined && (
+            <div className="text-xs font-mono text-slate-500 flex items-center gap-2">
+              <span className="font-sans font-semibold">{t.simulation.workerPoolBadge}</span>
+              <strong className="text-indigo-600 dark:text-indigo-400">{summary.workerPoolSize}</strong>
+            </div>
+          )}
+
           {/* Statistical Summary Strip */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs">
@@ -613,7 +658,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
           {summary.distributionBins.length > 0 && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-xs">
               <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 mb-4">
-                Frequency Distribution of Scenario Outcomes
+                {t.simulation.histogramTitle}
               </h3>
               <div className="flex items-end gap-2 h-44 pt-6 px-2 border-b border-slate-200 dark:border-slate-800">
                 {summary.distributionBins.map((bin, idx) => {
@@ -650,6 +695,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
+                    aria-label={t.simulation.searchPlaceholder}
                     value={searchQuery}
                     onChange={(e) => {
                       setSearchQuery(e.target.value);
@@ -662,13 +708,14 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
 
                 <div className="flex items-center gap-1">
                   <select
+                    aria-label={t.simulation.sortBy}
                     value={sortOrder}
                     onChange={(e) => setSortOrder(e.target.value as any)}
                     className="px-2.5 py-1.5 text-xs font-semibold bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg"
                   >
                     <option value="best">{t.simulation.sortBest}</option>
                     <option value="worst">{t.simulation.sortWorst}</option>
-                    <option value="id">Scenario # Order</option>
+                    <option value="id">{t.simulation.sortOrderId}</option>
                   </select>
                 </div>
               </div>
@@ -682,7 +729,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
                     <th className="px-3 py-2 text-start font-sans">{t.simulation.parameters}</th>
                     <th className="px-3 py-2 text-end">{t.simulation.objective}</th>
                     <th className="px-3 py-2 text-center font-sans">{t.simulation.feasibility}</th>
-                    <th className="px-3 py-2 text-end font-sans">Actions</th>
+                    <th className="px-3 py-2 text-end font-sans">{t.actionsCol}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-mono">
@@ -706,16 +753,17 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
                       <td className="px-3 py-2 text-center">
                         {sc.isFeasible ? (
                           <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded text-[10px] font-bold">
-                            Feasible
+                            {t.simulation.feasibleBadge}
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 bg-rose-100 text-rose-700 rounded text-[10px] font-bold">
-                            Infeasible
+                            {t.simulation.infeasibleBadge}
                           </span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-end">
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             setSelectedScenario(sc);
@@ -734,18 +782,22 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
             {/* Pagination Controls */}
             <div className="flex items-center justify-between pt-2">
               <span className="text-xs text-slate-500">
-                Page {currentPage} of {totalPages}
+                {t.simulation.pageWord} {currentPage} {t.simulation.ofWord} {totalPages}
               </span>
               <div className="flex items-center gap-1">
                 <button
+                  type="button"
                   disabled={currentPage <= 1}
+                  aria-label="Previous Page"
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   className="p-1.5 border border-slate-200 dark:border-slate-700 rounded-md disabled:opacity-30 hover:bg-slate-50"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button
+                  type="button"
                   disabled={currentPage >= totalPages}
+                  aria-label="Next Page"
                   onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   className="p-1.5 border border-slate-200 dark:border-slate-700 rounded-md disabled:opacity-30 hover:bg-slate-50"
                 >
@@ -762,11 +814,11 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
         <Modal
           isOpen={true}
           onClose={() => setSelectedScenario(null)}
-          title={`Scenario #${selectedScenario.id} Details`}
+          title={`${t.simulation.scenarioDetailsTitle} #${selectedScenario.id}`}
         >
           <div className="space-y-4">
             <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-800">
-              <span className="text-xs text-slate-500">Objective Outcome</span>
+              <span className="text-xs text-slate-500">{t.simulation.objectiveOutcome}</span>
               <p className="font-mono text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
                 {selectedScenario.objectiveValue.toFixed(4)}
               </p>
@@ -775,7 +827,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
 
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                Sampled Parameter Values
+                {t.simulation.sampledParamValues}
               </h4>
               <div className="p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-slate-200 dark:border-slate-800 font-mono text-xs">
                 {Object.entries(selectedScenario.paramValues).map(([k, v]) => (
@@ -789,6 +841,7 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
 
             <div className="flex flex-col sm:flex-row items-center gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
               <button
+                type="button"
                 onClick={() => {
                   onSendToModule(targetModule, selectedScenario.problemSnapshot);
                   setSelectedScenario(null);
@@ -800,11 +853,12 @@ export const SimulationModule: React.FC<SimulationModuleProps> = ({
               </button>
 
               <button
+                type="button"
                 onClick={() => handleSaveScenarioAsProblem(selectedScenario)}
                 className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <BookmarkPlus className="w-4 h-4" />
-                <span>Save Scenario to Workspace</span>
+                <span>{t.simulation.saveScenarioBtn}</span>
               </button>
             </div>
           </div>
