@@ -1,2 +1,6 @@
 include ':app'
+include ':capacitor-cordova-android-plugins'
+project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 rootProject.name = 'Sheeta Operations Research'
+
+apply from: 'capacitor.settings.gradle'
